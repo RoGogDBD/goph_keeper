@@ -9,16 +9,16 @@ import (
 	"time"
 
 	"goph_keeper/internal/models"
-	"goph_keeper/internal/storage"
+	"goph_keeper/internal/repository"
 )
 
 type Service struct {
-	store storage.UserStore
+	store repository.UserStore
 	jwt   *JWTService
 	ttl   time.Duration
 }
 
-func NewService(store storage.UserStore, jwt *JWTService, ttl time.Duration) *Service {
+func NewService(store repository.UserStore, jwt *JWTService, ttl time.Duration) *Service {
 	return &Service{store: store, jwt: jwt, ttl: ttl}
 }
 

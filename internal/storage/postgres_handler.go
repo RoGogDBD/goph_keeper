@@ -4,12 +4,14 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"goph_keeper/internal/repository"
 )
 
 type PostgresStores struct {
 	DB      *sql.DB
-	Users   UserStore
-	Secrets SecretStore
+	Users   repository.UserStore
+	Secrets repository.SecretStore
 }
 
 func InitPostgresStores(dsn, migrationsPath string) (PostgresStores, func(), error) {
@@ -29,8 +31,8 @@ func InitPostgresStores(dsn, migrationsPath string) (PostgresStores, func(), err
 
 	stores := PostgresStores{
 		DB:      db,
-		Users:   NewPostgresUserStore(db),
-		Secrets: NewPostgresSecretStore(db),
+		Users:   repository.NewPostgresUserStore(db),
+		Secrets: repository.NewPostgresSecretStore(db),
 	}
 
 	return stores, func() { _ = db.Close() }, nil

@@ -8,10 +8,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"goph_keeper/internal/auth"
-	"goph_keeper/internal/storage"
+	"goph_keeper/internal/repository"
 )
 
-func NewRouter(userStore storage.UserStore, secretStore storage.SecretStore, jwtSvc *auth.JWTService) (http.Handler, error) {
+func NewRouter(userStore repository.UserStore, secretStore repository.SecretStore, jwtSvc *auth.JWTService) (http.Handler, error) {
 	authSvc := auth.NewService(userStore, jwtSvc, 24*time.Hour)
 	authHandler := NewAuthHandler(authSvc)
 	secretHandler := NewSecretHandler(secretStore)

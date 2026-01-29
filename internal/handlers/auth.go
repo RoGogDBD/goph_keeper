@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"goph_keeper/internal/auth"
-	"goph_keeper/internal/storage"
+	"goph_keeper/internal/repository"
 )
 
 type AuthHandler struct {
@@ -59,7 +59,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.auth.Register(r.Context(), req.Email, req.Password)
 	if err != nil {
-		if errors.Is(err, storage.ErrUserExists) {
+		if errors.Is(err, repository.ErrUserExists) {
 			writeError(w, http.StatusConflict, "user already exists")
 			return
 		}

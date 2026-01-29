@@ -11,14 +11,14 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"goph_keeper/internal/models"
-	"goph_keeper/internal/storage"
+	"goph_keeper/internal/repository"
 )
 
 type SecretHandler struct {
-	store storage.SecretStore
+	store repository.SecretStore
 }
 
-func NewSecretHandler(store storage.SecretStore) *SecretHandler {
+func NewSecretHandler(store repository.SecretStore) *SecretHandler {
 	return &SecretHandler{store: store}
 }
 
@@ -137,7 +137,7 @@ func (h *SecretHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	secret, err := h.store.GetByID(r.Context(), claims.UserID, id)
 	if err != nil {
-		if errors.Is(err, storage.ErrSecretNotFound) {
+		if errors.Is(err, repository.ErrSecretNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
 		}
@@ -193,7 +193,7 @@ func (h *SecretHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := h.store.Update(r.Context(), secret)
 	if err != nil {
-		if errors.Is(err, storage.ErrSecretNotFound) {
+		if errors.Is(err, repository.ErrSecretNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
 		}
@@ -223,7 +223,7 @@ func (h *SecretHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.Delete(r.Context(), claims.UserID, id); err != nil {
-		if errors.Is(err, storage.ErrSecretNotFound) {
+		if errors.Is(err, repository.ErrSecretNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
 		}

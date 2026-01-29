@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"goph_keeper/internal/storage"
+	"goph_keeper/internal/repository"
 )
 
 func TestServiceRegisterLogin(t *testing.T) {
-	store := storage.NewMemoryUserStore()
+	store := repository.NewMemoryUserStore()
 	jwtSvc, err := NewJWTService("secret")
 	if err != nil {
 		t.Fatalf("jwt init: %v", err)
@@ -31,7 +31,7 @@ func TestServiceRegisterLogin(t *testing.T) {
 }
 
 func TestServiceInvalidLogin(t *testing.T) {
-	store := storage.NewMemoryUserStore()
+	store := repository.NewMemoryUserStore()
 	jwtSvc, _ := NewJWTService("secret")
 	service := NewService(store, jwtSvc, time.Hour)
 

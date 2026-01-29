@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"goph_keeper/internal/auth"
-	"goph_keeper/internal/storage"
+	"goph_keeper/internal/repository"
 )
 
 func TestAuthHandlers(t *testing.T) {
-	store := storage.NewMemoryUserStore()
+	store := repository.NewMemoryUserStore()
 	jwtSvc, _ := auth.NewJWTService("secret")
 	authSvc := auth.NewService(store, jwtSvc, time.Hour)
 	h := NewAuthHandler(authSvc)

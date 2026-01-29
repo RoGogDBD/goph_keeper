@@ -1,4 +1,4 @@
-package storage
+package repository
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	sq "github.com/Masterminds/squirrel"
 
 	"goph_keeper/internal/models"
 )
@@ -24,20 +26,16 @@ func (s *PostgresSecretStore) Create(ctx context.Context, secret models.Secret) 
 		return models.Secret{}, err
 	}
 
-	query := `
-INSERT INTO secrets (id, owner_id, type, payload, meta, created_at, updated_at, deleted)
-VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
-`
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Dollar).
+		Insert("secrets").
+		Columns("id", "owner_id", "type", "payload", "meta", "created_at", "updated_at", "deleted").
+		Values(secret.ID, secret.OwnerID, secret.Type, secret.Payload, meta, secret.CreatedAt, secret.UpdatedAt, false).
+		ToSql()
+	if err != nil {
+		return models.Secret{}, fmt.Errorf("build insert secret: %w", err)
+	}
 
-	_, err = s.db.ExecContext(ctx, query,
-		secret.ID,
-		secret.OwnerID,
-		secret.Type,
-		secret.Payload,
-		meta,
-		secret.CreatedAt,
-		secret.UpdatedAt,
-	)
+	_, err = s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return models.Secret{}, fmt.Errorf("create secret: %w", err)
 	}
@@ -46,15 +44,18 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
 }
 
 func (s *PostgresSecretStore) GetByID(ctx context.Context, ownerID, id string) (models.Secret, error) {
-	query := `
-SELECT id, owner_id, type, payload, meta, created_at, updated_at
-FROM secrets
-WHERE id = $1 AND owner_id = $2 AND deleted = FALSE
-`
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Dollar).
+		Select("id", "owner_id", "type", "payload", "meta", "created_at", "updated_at").
+		From("secrets").
+		Where(sq.Eq{"id": id, "owner_id": ownerID, "deleted": false}).
+		ToSql()
+	if err != nil {
+		return models.Secret{}, fmt.Errorf("build select secret: %w", err)
+	}
 
 	var secret models.Secret
 	var meta []byte
-	row := s.db.QueryRowContext(ctx, query, id, ownerID)
+	row := s.db.QueryRowContext(ctx, query, args...)
 	if err := row.Scan(&secret.ID, &secret.OwnerID, &secret.Type, &secret.Payload, &meta, &secret.CreatedAt, &secret.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return models.Secret{}, ErrSecretNotFound
@@ -68,14 +69,17 @@ WHERE id = $1 AND owner_id = $2 AND deleted = FALSE
 }
 
 func (s *PostgresSecretStore) ListByOwner(ctx context.Context, ownerID string) ([]models.Secret, error) {
-	query := `
-SELECT id, owner_id, type, payload, meta, created_at, updated_at
-FROM secrets
-WHERE owner_id = $1 AND deleted = FALSE
-ORDER BY updated_at DESC
-`
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Dollar).
+		Select("id", "owner_id", "type", "payload", "meta", "created_at", "updated_at").
+		From("secrets").
+		Where(sq.Eq{"owner_id": ownerID, "deleted": false}).
+		OrderBy("updated_at DESC").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build list secrets: %w", err)
+	}
 
-	rows, err := s.db.QueryContext(ctx, query, ownerID)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list secrets: %w", err)
 	}
@@ -106,20 +110,19 @@ func (s *PostgresSecretStore) Update(ctx context.Context, secret models.Secret) 
 		return models.Secret{}, err
 	}
 
-	query := `
-UPDATE secrets
-SET type = $1, payload = $2, meta = $3, updated_at = $4
-WHERE id = $5 AND owner_id = $6 AND deleted = FALSE
-`
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Dollar).
+		Update("secrets").
+		Set("type", secret.Type).
+		Set("payload", secret.Payload).
+		Set("meta", meta).
+		Set("updated_at", secret.UpdatedAt).
+		Where(sq.Eq{"id": secret.ID, "owner_id": secret.OwnerID, "deleted": false}).
+		ToSql()
+	if err != nil {
+		return models.Secret{}, fmt.Errorf("build update secret: %w", err)
+	}
 
-	result, err := s.db.ExecContext(ctx, query,
-		secret.Type,
-		secret.Payload,
-		meta,
-		secret.UpdatedAt,
-		secret.ID,
-		secret.OwnerID,
-	)
+	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return models.Secret{}, fmt.Errorf("update secret: %w", err)
 	}
@@ -131,13 +134,17 @@ WHERE id = $5 AND owner_id = $6 AND deleted = FALSE
 }
 
 func (s *PostgresSecretStore) Delete(ctx context.Context, ownerID, id string) error {
-	query := `
-UPDATE secrets
-SET deleted = TRUE, updated_at = $1
-WHERE id = $2 AND owner_id = $3 AND deleted = FALSE
-`
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Dollar).
+		Update("secrets").
+		Set("deleted", true).
+		Set("updated_at", time.Now().UTC()).
+		Where(sq.Eq{"id": id, "owner_id": ownerID, "deleted": false}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build delete secret: %w", err)
+	}
 
-	result, err := s.db.ExecContext(ctx, query, time.Now().UTC(), id, ownerID)
+	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("delete secret: %w", err)
 	}

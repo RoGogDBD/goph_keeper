@@ -1,4 +1,4 @@
-package storage
+package repository
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -21,12 +22,16 @@ func NewPostgresUserStore(db *sql.DB) *PostgresUserStore {
 }
 
 func (s *PostgresUserStore) Create(ctx context.Context, user models.User) (models.User, error) {
-	query := `
-INSERT INTO users (id, email, password_hash, created_at)
-VALUES ($1, $2, $3, $4)
-`
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Dollar).
+		Insert("users").
+		Columns("id", "email", "password_hash", "created_at").
+		Values(user.ID, user.Email, user.PasswordHash, user.CreatedAt).
+		ToSql()
+	if err != nil {
+		return models.User{}, fmt.Errorf("build insert user: %w", err)
+	}
 
-	_, err := s.db.ExecContext(ctx, query, user.ID, user.Email, user.PasswordHash, user.CreatedAt)
+	_, err = s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
@@ -39,14 +44,17 @@ VALUES ($1, $2, $3, $4)
 }
 
 func (s *PostgresUserStore) GetByEmail(ctx context.Context, email string) (models.User, error) {
-	query := `
-SELECT id, email, password_hash, created_at
-FROM users
-WHERE email = $1
-`
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Dollar).
+		Select("id", "email", "password_hash", "created_at").
+		From("users").
+		Where(sq.Eq{"email": email}).
+		ToSql()
+	if err != nil {
+		return models.User{}, fmt.Errorf("build select user: %w", err)
+	}
 
 	var user models.User
-	row := s.db.QueryRowContext(ctx, query, email)
+	row := s.db.QueryRowContext(ctx, query, args...)
 	if err := row.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return models.User{}, ErrUserNotFound
