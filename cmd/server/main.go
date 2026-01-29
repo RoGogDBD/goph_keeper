@@ -3,9 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
+	"time"
 
+	"goph_keeper/internal/auth"
 	"goph_keeper/internal/config"
+	"goph_keeper/internal/httpapi"
+	"goph_keeper/internal/storage"
 )
 
 func main() {
@@ -24,8 +30,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("server config: host=%s port=%d storage=%s dsn=%s log=%s/%s\n",
-		cfg.Host, cfg.Port, cfg.Storage.Type, cfg.Storage.DSN, cfg.Log.Level, cfg.Log.Format)
+	jwtSvc, err := auth.NewJWTService(cfg.JWTKey)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "jwt init error:", err)
+		os.Exit(1)
+	}
 
-	// TODO: initialize logger, storage, router, and start server
+	store := storage.NewMemoryUserStore()
+	authSvc := auth.NewService(store, jwtSvc, 24*time.Hour)
+	authHandler := httpapi.NewAuthHandler(authSvc)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/register", authHandler.Register)
+	mux.HandleFunc("/login", authHandler.Login)
+
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	log.Printf("server listening on %s", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		log.Fatal(err)
+	}
 }

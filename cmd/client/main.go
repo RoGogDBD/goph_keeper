@@ -10,6 +10,7 @@ import (
 )
 
 func main() {
+	// проверка на аргумент "version" для быстрой печати версии
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		fmt.Println(version.Info())
 		return

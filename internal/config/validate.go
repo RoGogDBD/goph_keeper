@@ -26,6 +26,9 @@ func (c ServerConfig) Validate() error {
 	default:
 		return fmt.Errorf("unsupported log format: %s", c.Log.Format)
 	}
+	if strings.TrimSpace(c.JWTKey) == "" {
+		return errors.New("jwt_key is required")
+	}
 	return nil
 }
 
