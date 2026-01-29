@@ -10,5 +10,6 @@ RUN go build -o /app/bin/server ./cmd/server
 FROM alpine:3.19
 WORKDIR /app
 COPY --from=builder /app/bin/server ./server
+COPY --from=builder /app/migrations ./migrations
 EXPOSE 8080
 CMD ["./server"]

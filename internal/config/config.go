@@ -166,50 +166,54 @@ func loadConfigFile(path string, target any) error {
 }
 
 func applyServerEnv(cfg *ServerConfig) {
-	if v := os.Getenv("GOPHKEEPER_SERVER_HOST"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_SERVER_HOST"); ok {
 		cfg.Host = v
 	}
-	if v := os.Getenv("GOPHKEEPER_SERVER_PORT"); v != "" {
-		if port, err := strconv.Atoi(v); err == nil {
+	if v, ok := os.LookupEnv("GOPHKEEPER_SERVER_PORT"); ok {
+		if v == "" {
+			cfg.Port = 0
+		} else if port, err := strconv.Atoi(v); err == nil {
 			cfg.Port = port
 		}
 	}
-	if v := os.Getenv("GOPHKEEPER_SERVER_STORAGE"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_SERVER_STORAGE"); ok {
 		cfg.Storage.Type = v
 	}
-	if v := os.Getenv("GOPHKEEPER_SERVER_DSN"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_SERVER_DSN"); ok {
 		cfg.Storage.DSN = v
 	}
-	if v := os.Getenv("GOPHKEEPER_LOG_LEVEL"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_LOG_LEVEL"); ok {
 		cfg.Log.Level = v
 	}
-	if v := os.Getenv("GOPHKEEPER_LOG_FORMAT"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_LOG_FORMAT"); ok {
 		cfg.Log.Format = v
 	}
-	if v := os.Getenv("GOPHKEEPER_SERVER_JWT_KEY"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_SERVER_JWT_KEY"); ok {
 		cfg.JWTKey = v
 	}
 }
 
 func applyClientEnv(cfg *ClientConfig) {
-	if v := os.Getenv("GOPHKEEPER_CLIENT_SERVER_URL"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_CLIENT_SERVER_URL"); ok {
 		cfg.ServerURL = v
 	}
-	if v := os.Getenv("GOPHKEEPER_CLIENT_DATA_DIR"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_CLIENT_DATA_DIR"); ok {
 		cfg.DataDir = v
 	}
-	if v := os.Getenv("GOPHKEEPER_CLIENT_TLS"); v != "" {
-		if parsed, err := strconv.ParseBool(v); err == nil {
+	if v, ok := os.LookupEnv("GOPHKEEPER_CLIENT_TLS"); ok {
+		if v == "" {
+			cfg.TLS = false
+		} else if parsed, err := strconv.ParseBool(v); err == nil {
 			cfg.TLS = parsed
 		}
 	}
-	if v := os.Getenv("GOPHKEEPER_CLIENT_TLS_CA"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_CLIENT_TLS_CA"); ok {
 		cfg.TLSCA = v
 	}
-	if v := os.Getenv("GOPHKEEPER_LOG_LEVEL"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_LOG_LEVEL"); ok {
 		cfg.Log.Level = v
 	}
-	if v := os.Getenv("GOPHKEEPER_LOG_FORMAT"); v != "" {
+	if v, ok := os.LookupEnv("GOPHKEEPER_LOG_FORMAT"); ok {
 		cfg.Log.Format = v
 	}
 }

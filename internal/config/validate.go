@@ -18,6 +18,9 @@ func (c ServerConfig) Validate() error {
 	default:
 		return fmt.Errorf("unsupported storage type: %s", c.Storage.Type)
 	}
+	if strings.ToLower(strings.TrimSpace(c.Storage.Type)) == "postgres" && strings.TrimSpace(c.Storage.DSN) == "" {
+		return errors.New("storage dsn is required for postgres")
+	}
 	if strings.TrimSpace(c.Log.Level) == "" {
 		return errors.New("log level is required")
 	}
