@@ -1,0 +1,26 @@
+# Build outputs
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build/test
+*.test
+*.out
+
+# IDE/editor
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Local config/examples
+*.local.yaml
+*.local.yml
+*.local.json
