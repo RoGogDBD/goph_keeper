@@ -1,4 +1,4 @@
-package client
+package api
 
 import (
 	"bytes"
@@ -10,22 +10,35 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"goph_keeper/internal/client/crypto"
+	"goph_keeper/internal/client/store"
 )
 
 type Client struct {
 	baseURL string
 	http    *http.Client
-	tokens  *TokenStore
+	tokens  *store.TokenStore
+	crypto  *crypto.Crypto
 }
 
-func New(baseURL string, tokens *TokenStore) *Client {
+func New(baseURL string, tokens *store.TokenStore, crypto *crypto.Crypto) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		http: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 		tokens: tokens,
+		crypto: crypto,
 	}
+}
+
+func (c *Client) SetCrypto(crypto *crypto.Crypto) {
+	c.crypto = crypto
+}
+
+func (c *Client) Crypto() *crypto.Crypto {
+	return c.crypto
 }
 
 type RegisterRequest struct {
@@ -95,6 +108,13 @@ func (c *Client) Login(ctx context.Context, req LoginRequest) error {
 }
 
 func (c *Client) CreateSecret(ctx context.Context, req SecretRequest) (SecretResponse, error) {
+	if c.crypto != nil && len(req.Payload) > 0 {
+		enc, err := c.crypto.Encrypt(req.Payload)
+		if err != nil {
+			return SecretResponse{}, err
+		}
+		req.Payload = enc
+	}
 	var resp SecretResponse
 	if err := c.do(ctx, http.MethodPost, "/api/secrets", req, &resp, true); err != nil {
 		return SecretResponse{}, err
@@ -115,10 +135,24 @@ func (c *Client) GetSecret(ctx context.Context, id string) (SecretResponse, erro
 	if err := c.do(ctx, http.MethodGet, "/api/secrets/"+id, nil, &resp, true); err != nil {
 		return SecretResponse{}, err
 	}
+	if c.crypto != nil && len(resp.Payload) > 0 {
+		dec, err := c.crypto.Decrypt(resp.Payload)
+		if err != nil {
+			return SecretResponse{}, err
+		}
+		resp.Payload = dec
+	}
 	return resp, nil
 }
 
 func (c *Client) UpdateSecret(ctx context.Context, id string, req SecretRequest) (SecretResponse, error) {
+	if c.crypto != nil && len(req.Payload) > 0 {
+		enc, err := c.crypto.Encrypt(req.Payload)
+		if err != nil {
+			return SecretResponse{}, err
+		}
+		req.Payload = enc
+	}
 	var resp SecretResponse
 	if err := c.do(ctx, http.MethodPut, "/api/secrets/"+id, req, &resp, true); err != nil {
 		return SecretResponse{}, err
@@ -131,6 +165,14 @@ func (c *Client) DeleteSecret(ctx context.Context, id string) error {
 }
 
 func (c *Client) SyncPull(ctx context.Context, since time.Time) ([]SyncItem, error) {
+	return c.syncPull(ctx, since, true)
+}
+
+func (c *Client) SyncPullEncrypted(ctx context.Context, since time.Time) ([]SyncItem, error) {
+	return c.syncPull(ctx, since, false)
+}
+
+func (c *Client) syncPull(ctx context.Context, since time.Time, decrypt bool) ([]SyncItem, error) {
 	path := "/api/sync"
 	if !since.IsZero() {
 		path = path + "?since=" + since.UTC().Format(time.RFC3339)
@@ -139,10 +181,42 @@ func (c *Client) SyncPull(ctx context.Context, since time.Time) ([]SyncItem, err
 	if err := c.do(ctx, http.MethodGet, path, nil, &resp, true); err != nil {
 		return nil, err
 	}
+	if decrypt && c.crypto != nil {
+		for i := range resp.Items {
+			if resp.Items[i].Deleted || len(resp.Items[i].Payload) == 0 {
+				continue
+			}
+			dec, err := c.crypto.Decrypt(resp.Items[i].Payload)
+			if err != nil {
+				return nil, err
+			}
+			resp.Items[i].Payload = dec
+		}
+	}
 	return resp.Items, nil
 }
 
 func (c *Client) SyncPush(ctx context.Context, items []SyncItem) (int, error) {
+	return c.syncPush(ctx, items, true)
+}
+
+func (c *Client) SyncPushEncrypted(ctx context.Context, items []SyncItem) (int, error) {
+	return c.syncPush(ctx, items, false)
+}
+
+func (c *Client) syncPush(ctx context.Context, items []SyncItem, encrypt bool) (int, error) {
+	if encrypt && c.crypto != nil {
+		for i := range items {
+			if items[i].Deleted || len(items[i].Payload) == 0 {
+				continue
+			}
+			enc, err := c.crypto.Encrypt(items[i].Payload)
+			if err != nil {
+				return 0, err
+			}
+			items[i].Payload = enc
+		}
+	}
 	var resp SyncPushResponse
 	if err := c.do(ctx, http.MethodPost, "/api/sync", SyncPushRequest{Items: items}, &resp, true); err != nil {
 		return 0, err

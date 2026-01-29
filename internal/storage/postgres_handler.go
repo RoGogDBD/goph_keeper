@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"goph_keeper/internal/repository"
 )
@@ -19,7 +20,7 @@ func InitPostgresStores(dsn, migrationsPath string) (PostgresStores, func(), err
 		return PostgresStores{}, nil, fmt.Errorf("storage dsn is required for postgres")
 	}
 
-	db, err := OpenPostgres(dsn)
+	db, err := openPostgresWithRetry(dsn, 10, time.Second)
 	if err != nil {
 		return PostgresStores{}, nil, err
 	}
@@ -36,4 +37,17 @@ func InitPostgresStores(dsn, migrationsPath string) (PostgresStores, func(), err
 	}
 
 	return stores, func() { _ = db.Close() }, nil
+}
+
+func openPostgresWithRetry(dsn string, attempts int, delay time.Duration) (*sql.DB, error) {
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		db, err := OpenPostgres(dsn)
+		if err == nil {
+			return db, nil
+		}
+		lastErr = err
+		time.Sleep(delay)
+	}
+	return nil, fmt.Errorf("open postgres after retries: %w", lastErr)
 }

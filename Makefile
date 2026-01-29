@@ -11,7 +11,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 
 LDFLAGS := -ldflags "-X goph_keeper/internal/version.BuildVersion=$(VERSION) -X goph_keeper/internal/version.BuildDate=$(DATE) -X goph_keeper/internal/version.BuildCommit=$(COMMIT)"
 
-.PHONY: build build-server build-client run-server run-client clean test vet lint docker-up docker-down security coverage
+.PHONY: build build-server build-client run-server run-client clean clean-data test vet lint docker-up docker-down security coverage
 
 build: build-server build-client
 
@@ -31,6 +31,9 @@ run-client:
 
 clean:
 	@rm -rf $(BUILD_DIR)
+
+clean-data:
+	@rm -rf .gophkeeper
 
 test:
 	go test ./...
