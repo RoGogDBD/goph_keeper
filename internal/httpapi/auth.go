@@ -33,9 +33,18 @@ type loginResponse struct {
 	Token string `json:"token"`
 }
 
+type meResponse struct {
+	UserID string `json:"user_id"`
+	Email  string `json:"email"`
+}
+
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !isJSONContentType(r.Header.Get("Content-Type")) {
+		writeError(w, http.StatusUnsupportedMediaType, "content type must be application/json")
 		return
 	}
 
@@ -66,6 +75,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if !isJSONContentType(r.Header.Get("Content-Type")) {
+		writeError(w, http.StatusUnsupportedMediaType, "content type must be application/json")
+		return
+	}
 
 	var req loginRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -83,6 +96,24 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, loginResponse{Token: token})
+}
+
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, meResponse{
+		UserID: claims.UserID,
+		Email:  claims.Email,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -111,4 +142,12 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
 		return errors.New("unexpected data after json body")
 	}
 	return nil
+}
+
+func isJSONContentType(contentType string) bool {
+	if contentType == "" {
+		return false
+	}
+	parts := strings.Split(contentType, ";")
+	return strings.TrimSpace(strings.ToLower(parts[0])) == "application/json"
 }
