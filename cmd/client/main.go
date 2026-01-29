@@ -163,7 +163,7 @@ func handleAdd(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.C
 	}
 
 	now := time.Now().UTC()
-	item := api.SyncItem{
+	item := store.Item{
 		ID:        newID(),
 		Type:      typ,
 		Payload:   []byte(payload),
@@ -257,7 +257,7 @@ func handleUpdate(ctx context.Context, local *store.LocalStore, cryptoSvc *crypt
 		createdAt = existing.CreatedAt
 	}
 
-	item := api.SyncItem{
+	item := store.Item{
 		ID:        id,
 		Type:      typ,
 		Payload:   []byte(payload),
@@ -299,7 +299,7 @@ func handleDelete(ctx context.Context, local *store.LocalStore, args []string) {
 		payload = existing.Payload
 	}
 
-	item := api.SyncItem{
+	item := store.Item{
 		ID:        id,
 		Type:      itemType,
 		Payload:   payload,
@@ -328,7 +328,7 @@ func handleSync(ctx context.Context, cli *api.Client, local *store.LocalStore, d
 		os.Exit(1)
 	}
 	if len(dirty) > 0 {
-		_, err = cli.SyncPushEncrypted(ctx, dirty)
+		_, err = cli.SyncPushEncrypted(ctx, toSyncItems(dirty))
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "sync push error:", err)
 			os.Exit(1)
@@ -349,7 +349,7 @@ func handleSync(ctx context.Context, cli *api.Client, local *store.LocalStore, d
 		os.Exit(1)
 	}
 
-	if err := local.ApplyRemote(ctx, items); err != nil {
+	if err := local.ApplyRemote(ctx, fromSyncItems(items)); err != nil {
 		fmt.Fprintln(os.Stderr, "apply remote error:", err)
 		os.Exit(1)
 	}
@@ -389,4 +389,36 @@ func newID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func toSyncItems(items []store.Item) []api.SyncItem {
+	out := make([]api.SyncItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, api.SyncItem{
+			ID:        it.ID,
+			Type:      it.Type,
+			Payload:   it.Payload,
+			Meta:      it.Meta,
+			Deleted:   it.Deleted,
+			CreatedAt: it.CreatedAt,
+			UpdatedAt: it.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func fromSyncItems(items []api.SyncItem) []store.Item {
+	out := make([]store.Item, 0, len(items))
+	for _, it := range items {
+		out = append(out, store.Item{
+			ID:        it.ID,
+			Type:      it.Type,
+			Payload:   it.Payload,
+			Meta:      it.Meta,
+			Deleted:   it.Deleted,
+			CreatedAt: it.CreatedAt,
+			UpdatedAt: it.UpdatedAt,
+		})
+	}
+	return out
 }

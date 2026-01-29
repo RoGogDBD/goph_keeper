@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"goph_keeper/internal/client/api"
-
 	_ "modernc.org/sqlite"
 )
 
@@ -42,7 +40,7 @@ func (s *LocalStore) Close() error {
 	return s.db.Close()
 }
 
-func (s *LocalStore) Upsert(ctx context.Context, item api.SyncItem, dirty bool) error {
+func (s *LocalStore) Upsert(ctx context.Context, item Item, dirty bool) error {
 	if item.Deleted && item.Type == "" {
 		item.Type = "deleted"
 	}
@@ -83,23 +81,23 @@ ON CONFLICT(id) DO UPDATE SET
 	return nil
 }
 
-func (s *LocalStore) Get(ctx context.Context, id string) (api.SyncItem, error) {
+func (s *LocalStore) Get(ctx context.Context, id string) (Item, error) {
 	query := `
 SELECT id, type, payload, meta, deleted, created_at, updated_at, dirty
 FROM secrets_local
 WHERE id = ?
 `
 
-	var item api.SyncItem
+	var item Item
 	var meta []byte
 	var createdAt, updatedAt string
 	var dirty bool
 	row := s.db.QueryRowContext(ctx, query, id)
 	if err := row.Scan(&item.ID, &item.Type, &item.Payload, &meta, &item.Deleted, &createdAt, &updatedAt, &dirty); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return api.SyncItem{}, ErrNotFound
+			return Item{}, ErrNotFound
 		}
-		return api.SyncItem{}, err
+		return Item{}, err
 	}
 	_ = json.Unmarshal(meta, &item.Meta)
 	item.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
@@ -107,7 +105,7 @@ WHERE id = ?
 	return item, nil
 }
 
-func (s *LocalStore) List(ctx context.Context, includeDeleted bool) ([]api.SyncItem, error) {
+func (s *LocalStore) List(ctx context.Context, includeDeleted bool) ([]Item, error) {
 	query := `
 SELECT id, type, payload, meta, deleted, created_at, updated_at, dirty
 FROM secrets_local
@@ -123,9 +121,9 @@ FROM secrets_local
 	}
 	defer rows.Close()
 
-	var items []api.SyncItem
+	var items []Item
 	for rows.Next() {
-		var item api.SyncItem
+		var item Item
 		var meta []byte
 		var createdAt, updatedAt string
 		var dirty bool
@@ -144,7 +142,7 @@ FROM secrets_local
 	return items, nil
 }
 
-func (s *LocalStore) ListDirty(ctx context.Context) ([]api.SyncItem, error) {
+func (s *LocalStore) ListDirty(ctx context.Context) ([]Item, error) {
 	query := `
 SELECT id, type, payload, meta, deleted, created_at, updated_at, dirty
 FROM secrets_local
@@ -158,9 +156,9 @@ ORDER BY updated_at ASC
 	}
 	defer rows.Close()
 
-	var items []api.SyncItem
+	var items []Item
 	for rows.Next() {
-		var item api.SyncItem
+		var item Item
 		var meta []byte
 		var createdAt, updatedAt string
 		var dirty bool
@@ -192,7 +190,7 @@ func (s *LocalStore) MarkClean(ctx context.Context, ids []string) error {
 	return nil
 }
 
-func (s *LocalStore) ApplyRemote(ctx context.Context, items []api.SyncItem) error {
+func (s *LocalStore) ApplyRemote(ctx context.Context, items []Item) error {
 	for _, item := range items {
 		local, err := s.Get(ctx, item.ID)
 		if err != nil && !errors.Is(err, ErrNotFound) {

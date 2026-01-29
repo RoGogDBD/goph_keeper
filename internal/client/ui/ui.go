@@ -146,7 +146,7 @@ func showAddSecret(app *tview.Application, pages *tview.Pages, local *store.Loca
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		now := time.Now().UTC()
-		item := api.SyncItem{
+		item := store.Item{
 			ID:        newLocalID(),
 			Type:      typ,
 			Payload:   []byte(payload),
@@ -239,7 +239,7 @@ func doSync(app *tview.Application, cli *api.Client, local *store.LocalStore, st
 			return
 		}
 		if len(dirty) > 0 {
-			if _, err := cli.SyncPushEncrypted(ctx, dirty); err != nil {
+			if _, err := cli.SyncPushEncrypted(ctx, toSyncItems(dirty)); err != nil {
 				app.QueueUpdateDraw(func() { status.SetText(fmt.Sprintf("[red]Error: %v", err)) })
 				return
 			}
@@ -261,7 +261,7 @@ func doSync(app *tview.Application, cli *api.Client, local *store.LocalStore, st
 			return
 		}
 
-		if err := local.ApplyRemote(ctx, items); err != nil {
+		if err := local.ApplyRemote(ctx, fromSyncItems(items)); err != nil {
 			app.QueueUpdateDraw(func() { status.SetText(fmt.Sprintf("[red]Error: %v", err)) })
 			return
 		}
@@ -275,6 +275,38 @@ func newLocalID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func toSyncItems(items []store.Item) []api.SyncItem {
+	out := make([]api.SyncItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, api.SyncItem{
+			ID:        it.ID,
+			Type:      it.Type,
+			Payload:   it.Payload,
+			Meta:      it.Meta,
+			Deleted:   it.Deleted,
+			CreatedAt: it.CreatedAt,
+			UpdatedAt: it.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func fromSyncItems(items []api.SyncItem) []store.Item {
+	out := make([]store.Item, 0, len(items))
+	for _, it := range items {
+		out = append(out, store.Item{
+			ID:        it.ID,
+			Type:      it.Type,
+			Payload:   it.Payload,
+			Meta:      it.Meta,
+			Deleted:   it.Deleted,
+			CreatedAt: it.CreatedAt,
+			UpdatedAt: it.UpdatedAt,
+		})
+	}
+	return out
 }
 
 func getCrypto(cli *api.Client) *crypto.Crypto {

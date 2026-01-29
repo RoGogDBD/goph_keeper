@@ -12,17 +12,21 @@ import (
 	"time"
 
 	"goph_keeper/internal/client/crypto"
-	"goph_keeper/internal/client/store"
 )
 
 type Client struct {
 	baseURL string
 	http    *http.Client
-	tokens  *store.TokenStore
+	tokens  TokenStore
 	crypto  *crypto.Crypto
 }
 
-func New(baseURL string, tokens *store.TokenStore, crypto *crypto.Crypto) *Client {
+type TokenStore interface {
+	Load() (string, error)
+	Save(token string) error
+}
+
+func New(baseURL string, tokens TokenStore, crypto *crypto.Crypto) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		http: &http.Client{
