@@ -6,13 +6,10 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
-
-	"github.com/go-chi/chi/v5"
 
 	"goph_keeper/internal/auth"
 	"goph_keeper/internal/config"
-	"goph_keeper/internal/httpapi"
+	"goph_keeper/internal/handlers"
 	"goph_keeper/internal/storage"
 )
 
@@ -39,13 +36,11 @@ func main() {
 	}
 
 	store := storage.NewMemoryUserStore()
-	authSvc := auth.NewService(store, jwtSvc, 24*time.Hour)
-	authHandler := httpapi.NewAuthHandler(authSvc)
-
-	router := chi.NewRouter()
-	router.Post("/register", authHandler.Register)
-	router.Post("/login", authHandler.Login)
-	router.With(httpapi.AuthMiddleware(jwtSvc)).Get("/me", authHandler.Me)
+	router, err := handlers.NewRouter(store, jwtSvc)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "router init error:", err)
+		os.Exit(1)
+	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	log.Printf("server listening on %s", addr)
