@@ -8,6 +8,7 @@ type Secret struct {
 	Type      string
 	Payload   []byte
 	Meta      map[string]string
+	Deleted   bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

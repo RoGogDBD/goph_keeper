@@ -11,7 +11,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 
 LDFLAGS := -ldflags "-X goph_keeper/internal/version.BuildVersion=$(VERSION) -X goph_keeper/internal/version.BuildDate=$(DATE) -X goph_keeper/internal/version.BuildCommit=$(COMMIT)"
 
-.PHONY: build build-server build-client run-server run-client clean test vet lint docker-up docker-down
+.PHONY: build build-server build-client run-server run-client clean test vet lint docker-up docker-down security coverage
 
 build: build-server build-client
 
@@ -40,6 +40,14 @@ vet:
 
 lint:
 	@echo "No linter configured"
+
+security:
+	@command -v govulncheck >/dev/null 2>&1 || { echo "govulncheck not found. Install: go install golang.org/x/vuln/cmd/govulncheck@latest"; exit 1; }
+	govulncheck ./...
+
+coverage:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
 
 docker-up:
 	docker compose up --build -d

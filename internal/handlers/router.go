@@ -15,6 +15,7 @@ func NewRouter(userStore repository.UserStore, secretStore repository.SecretStor
 	authSvc := auth.NewService(userStore, jwtSvc, 24*time.Hour)
 	authHandler := NewAuthHandler(authSvc)
 	secretHandler := NewSecretHandler(secretStore)
+	syncHandler := NewSyncHandler(secretStore)
 
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
@@ -33,6 +34,10 @@ func NewRouter(userStore repository.UserStore, secretStore repository.SecretStor
 			sr.Get("/{id}", secretHandler.Get)
 			sr.Put("/{id}", secretHandler.Update)
 			sr.Delete("/{id}", secretHandler.Delete)
+		})
+		r.With(AuthMiddleware(jwtSvc)).Route("/sync", func(sr chi.Router) {
+			sr.Get("/", syncHandler.Pull)
+			sr.Post("/", syncHandler.Push)
 		})
 	})
 

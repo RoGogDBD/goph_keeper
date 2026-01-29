@@ -29,7 +29,7 @@ func (s *PostgresSecretStore) Create(ctx context.Context, secret models.Secret) 
 	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Dollar).
 		Insert("secrets").
 		Columns("id", "owner_id", "type", "payload", "meta", "created_at", "updated_at", "deleted").
-		Values(secret.ID, secret.OwnerID, secret.Type, secret.Payload, meta, secret.CreatedAt, secret.UpdatedAt, false).
+		Values(secret.ID, secret.OwnerID, secret.Type, secret.Payload, meta, secret.CreatedAt, secret.UpdatedAt, secret.Deleted).
 		ToSql()
 	if err != nil {
 		return models.Secret{}, fmt.Errorf("build insert secret: %w", err)
@@ -104,6 +104,43 @@ func (s *PostgresSecretStore) ListByOwner(ctx context.Context, ownerID string) (
 	return secrets, nil
 }
 
+func (s *PostgresSecretStore) ListUpdatedSince(ctx context.Context, ownerID string, since time.Time) ([]models.Secret, error) {
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Dollar).
+		Select("id", "owner_id", "type", "payload", "meta", "created_at", "updated_at", "deleted").
+		From("secrets").
+		Where(sq.Eq{"owner_id": ownerID}).
+		Where(sq.Gt{"updated_at": since}).
+		OrderBy("updated_at ASC").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build list updated secrets: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list updated secrets: %w", err)
+	}
+	defer rows.Close()
+
+	var secrets []models.Secret
+	for rows.Next() {
+		var secret models.Secret
+		var meta []byte
+		if err := rows.Scan(&secret.ID, &secret.OwnerID, &secret.Type, &secret.Payload, &meta, &secret.CreatedAt, &secret.UpdatedAt, &secret.Deleted); err != nil {
+			return nil, fmt.Errorf("scan updated secret: %w", err)
+		}
+		if len(meta) > 0 {
+			_ = json.Unmarshal(meta, &secret.Meta)
+		}
+		secrets = append(secrets, secret)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate updated secrets: %w", err)
+	}
+
+	return secrets, nil
+}
+
 func (s *PostgresSecretStore) Update(ctx context.Context, secret models.Secret) (models.Secret, error) {
 	meta, err := json.Marshal(secret.Meta)
 	if err != nil {
@@ -152,4 +189,39 @@ func (s *PostgresSecretStore) Delete(ctx context.Context, ownerID, id string) er
 		return ErrSecretNotFound
 	}
 	return nil
+}
+
+func (s *PostgresSecretStore) Upsert(ctx context.Context, secret models.Secret) (models.Secret, error) {
+	meta, err := json.Marshal(secret.Meta)
+	if err != nil {
+		return models.Secret{}, err
+	}
+
+	builder := sq.StatementBuilder.PlaceholderFormat(sq.Dollar).
+		Insert("secrets").
+		Columns("id", "owner_id", "type", "payload", "meta", "created_at", "updated_at", "deleted").
+		Values(secret.ID, secret.OwnerID, secret.Type, secret.Payload, meta, secret.CreatedAt, secret.UpdatedAt, secret.Deleted).
+		Suffix(`
+ON CONFLICT (id) DO UPDATE
+SET owner_id = EXCLUDED.owner_id,
+    type = EXCLUDED.type,
+    payload = EXCLUDED.payload,
+    meta = EXCLUDED.meta,
+    created_at = EXCLUDED.created_at,
+    updated_at = EXCLUDED.updated_at,
+    deleted = EXCLUDED.deleted
+WHERE secrets.owner_id = EXCLUDED.owner_id
+  AND secrets.updated_at < EXCLUDED.updated_at`)
+
+	query, args, err := builder.ToSql()
+	if err != nil {
+		return models.Secret{}, fmt.Errorf("build upsert secret: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return models.Secret{}, fmt.Errorf("upsert secret: %w", err)
+	}
+
+	return secret, nil
 }

@@ -84,3 +84,11 @@ make build-client
 make run-server
 make run-client
 ```
+
+## Security
+
+Проверка уязвимостей через govulncheck:
+
+```bash
+make security
+```

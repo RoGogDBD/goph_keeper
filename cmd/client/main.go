@@ -66,6 +66,8 @@ func main() {
 		handleUpdate(ctx, cli, args[1:])
 	case "delete":
 		handleDelete(ctx, cli, args[1:])
+	case "sync":
+		handleSync(ctx, cli, cfg.DataDir)
 	default:
 		printClientUsage()
 		os.Exit(1)
@@ -210,6 +212,35 @@ func handleDelete(ctx context.Context, cli *client.Client, args []string) {
 	fmt.Println("deleted")
 }
 
+func handleSync(ctx context.Context, cli *client.Client, dataDir string) {
+	syncStore := client.NewSyncStore(dataDir)
+	since, err := syncStore.Load()
+	if err != nil && err != client.ErrSyncNotFound {
+		fmt.Fprintln(os.Stderr, "sync state error:", err)
+		os.Exit(1)
+	}
+
+	items, err := cli.SyncPull(ctx, since)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "sync pull error:", err)
+		os.Exit(1)
+	}
+
+	for _, item := range items {
+		status := "active"
+		if item.Deleted {
+			status = "deleted"
+		}
+		fmt.Printf("%s %s %s %s\n", item.ID, item.Type, status, item.UpdatedAt.Format(time.RFC3339))
+	}
+
+	if err := syncStore.Save(time.Now().UTC()); err != nil {
+		fmt.Fprintln(os.Stderr, "sync save error:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("synced %d items\n", len(items))
+}
+
 func printClientUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  client [--config path] <command> [flags]")
@@ -221,5 +252,6 @@ func printClientUsage() {
 	fmt.Println("  get      --id")
 	fmt.Println("  update   --id --type --payload [--meta k=v,...]")
 	fmt.Println("  delete   --id")
+	fmt.Println("  sync")
 	fmt.Println("  version")
 }

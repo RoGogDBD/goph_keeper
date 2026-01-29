@@ -57,6 +57,28 @@ type SecretResponse struct {
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
+type SyncItem struct {
+	ID        string            `json:"id"`
+	Type      string            `json:"type"`
+	Payload   []byte            `json:"payload"`
+	Meta      map[string]string `json:"meta"`
+	Deleted   bool              `json:"deleted"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+type SyncPullResponse struct {
+	Items []SyncItem `json:"items"`
+}
+
+type SyncPushRequest struct {
+	Items []SyncItem `json:"items"`
+}
+
+type SyncPushResponse struct {
+	Applied int `json:"applied"`
+}
+
 func (c *Client) Register(ctx context.Context, req RegisterRequest) error {
 	return c.do(ctx, http.MethodPost, "/api/register", req, nil, false)
 }
@@ -106,6 +128,26 @@ func (c *Client) UpdateSecret(ctx context.Context, id string, req SecretRequest)
 
 func (c *Client) DeleteSecret(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/api/secrets/"+id, nil, nil, true)
+}
+
+func (c *Client) SyncPull(ctx context.Context, since time.Time) ([]SyncItem, error) {
+	path := "/api/sync"
+	if !since.IsZero() {
+		path = path + "?since=" + since.UTC().Format(time.RFC3339)
+	}
+	var resp SyncPullResponse
+	if err := c.do(ctx, http.MethodGet, path, nil, &resp, true); err != nil {
+		return nil, err
+	}
+	return resp.Items, nil
+}
+
+func (c *Client) SyncPush(ctx context.Context, items []SyncItem) (int, error) {
+	var resp SyncPushResponse
+	if err := c.do(ctx, http.MethodPost, "/api/sync", SyncPushRequest{Items: items}, &resp, true); err != nil {
+		return 0, err
+	}
+	return resp.Applied, nil
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, out any, auth bool) error {

@@ -5,7 +5,7 @@ go 1.23
 require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/go-chi/chi/v5 v5.0.10
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/golang-migrate/migrate/v4 v4.17.0
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/jackc/pgx/v5 v5.5.5
