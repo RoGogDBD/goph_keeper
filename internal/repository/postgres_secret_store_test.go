@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -16,11 +17,7 @@ func TestPostgresSecretStoreCreateGetList(t *testing.T) {
 	t.Parallel()
 
 	db, mock := newMockDB(t)
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("db.Close: %v", err)
-		}
-	})
+	cleanupDB(t, db, mock)
 	store := NewPostgresSecretStore(db)
 
 	secret := testSecret()
@@ -68,11 +65,7 @@ func TestPostgresSecretStoreUpdateDeleteUpsert(t *testing.T) {
 	t.Parallel()
 
 	db, mock := newMockDB(t)
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("db.Close: %v", err)
-		}
-	})
+	cleanupDB(t, db, mock)
 	store := NewPostgresSecretStore(db)
 
 	secret := testSecret()
@@ -109,28 +102,24 @@ func TestPostgresSecretStoreNotFound(t *testing.T) {
 	t.Parallel()
 
 	db, mock := newMockDB(t)
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("db.Close: %v", err)
-		}
-	})
+	cleanupDB(t, db, mock)
 	store := NewPostgresSecretStore(db)
 
 	mock.ExpectQuery("SELECT").
 		WillReturnError(sql.ErrNoRows)
-	if _, err := store.GetByID(context.Background(), "owner", "id"); err != ErrSecretNotFound {
+	if _, err := store.GetByID(context.Background(), "owner", "id"); !errors.Is(err, ErrSecretNotFound) {
 		t.Fatalf("GetByID err=%v want ErrSecretNotFound", err)
 	}
 
 	mock.ExpectExec("UPDATE secrets").
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	if _, err := store.Update(context.Background(), testSecret()); err != ErrSecretNotFound {
+	if _, err := store.Update(context.Background(), testSecret()); !errors.Is(err, ErrSecretNotFound) {
 		t.Fatalf("Update err=%v want ErrSecretNotFound", err)
 	}
 
 	mock.ExpectExec("UPDATE secrets").
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	if err := store.Delete(context.Background(), "owner", "id"); err != ErrSecretNotFound {
+	if err := store.Delete(context.Background(), "owner", "id"); !errors.Is(err, ErrSecretNotFound) {
 		t.Fatalf("Delete err=%v want ErrSecretNotFound", err)
 	}
 }
@@ -139,11 +128,7 @@ func TestPostgresSecretStoreErrors(t *testing.T) {
 	t.Parallel()
 
 	db, mock := newMockDB(t)
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("db.Close: %v", err)
-		}
-	})
+	cleanupDB(t, db, mock)
 	store := NewPostgresSecretStore(db)
 
 	secret := testSecret()

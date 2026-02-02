@@ -11,6 +11,6 @@ FROM alpine:3.19
 WORKDIR /app
 COPY --from=builder /app/bin/server ./server
 COPY --from=builder /app/migrations ./migrations
-COPY --from=builder /app/swagger ./swagger
+COPY --from=builder /app/api/swagger ./swagger
 EXPOSE 8080
 CMD ["./server"]

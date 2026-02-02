@@ -34,19 +34,19 @@ type stubSecretStore struct{}
 func (s *stubSecretStore) Create(_ context.Context, secret models.Secret) (models.Secret, error) {
 	return secret, nil
 }
-func (s *stubSecretStore) GetByID(_ context.Context, ownerID, id string) (models.Secret, error) {
+func (s *stubSecretStore) GetByID(_ context.Context, _, _ string) (models.Secret, error) {
 	return models.Secret{}, repository.ErrSecretNotFound
 }
-func (s *stubSecretStore) ListByOwner(_ context.Context, ownerID string) ([]models.Secret, error) {
+func (s *stubSecretStore) ListByOwner(_ context.Context, _ string) ([]models.Secret, error) {
 	return []models.Secret{}, nil
 }
-func (s *stubSecretStore) ListUpdatedSince(_ context.Context, ownerID string, since time.Time) ([]models.Secret, error) {
+func (s *stubSecretStore) ListUpdatedSince(_ context.Context, _ string, _ time.Time) ([]models.Secret, error) {
 	return []models.Secret{}, nil
 }
 func (s *stubSecretStore) Update(_ context.Context, secret models.Secret) (models.Secret, error) {
 	return secret, nil
 }
-func (s *stubSecretStore) Delete(_ context.Context, ownerID, id string) error {
+func (s *stubSecretStore) Delete(_ context.Context, _, _ string) error {
 	return nil
 }
 func (s *stubSecretStore) Upsert(_ context.Context, secret models.Secret) (models.Secret, error) {

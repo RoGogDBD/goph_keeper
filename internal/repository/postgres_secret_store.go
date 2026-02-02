@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -59,7 +60,7 @@ func (s *PostgresSecretStore) GetByID(ctx context.Context, ownerID, id string) (
 	var meta []byte
 	row := s.db.QueryRowContext(ctx, query, args...)
 	if err := row.Scan(&secret.ID, &secret.OwnerID, &secret.Type, &secret.Payload, &meta, &secret.CreatedAt, &secret.UpdatedAt); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return models.Secret{}, ErrSecretNotFound
 		}
 		return models.Secret{}, fmt.Errorf("get secret: %w", err)

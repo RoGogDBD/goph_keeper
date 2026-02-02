@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -22,15 +23,21 @@ func newMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	return db, mock
 }
 
-func TestPostgresUserStoreCreate(t *testing.T) {
-	t.Parallel()
-
-	db, mock := newMockDB(t)
+func cleanupDB(t *testing.T, db *sql.DB, mock sqlmock.Sqlmock) {
+	t.Helper()
 	t.Cleanup(func() {
+		mock.ExpectClose()
 		if err := db.Close(); err != nil {
 			t.Fatalf("db.Close: %v", err)
 		}
 	})
+}
+
+func TestPostgresUserStoreCreate(t *testing.T) {
+	t.Parallel()
+
+	db, mock := newMockDB(t)
+	cleanupDB(t, db, mock)
 	store := NewPostgresUserStore(db)
 
 	user := testUser()
@@ -50,11 +57,7 @@ func TestPostgresUserStoreCreateDuplicate(t *testing.T) {
 	t.Parallel()
 
 	db, mock := newMockDB(t)
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("db.Close: %v", err)
-		}
-	})
+	cleanupDB(t, db, mock)
 	store := NewPostgresUserStore(db)
 
 	user := testUser()
@@ -63,7 +66,7 @@ func TestPostgresUserStoreCreateDuplicate(t *testing.T) {
 		WithArgs(user.ID, user.Email, user.PasswordHash, user.CreatedAt).
 		WillReturnError(pgErr)
 
-	if _, err := store.Create(context.Background(), user); err != ErrUserExists {
+	if _, err := store.Create(context.Background(), user); !errors.Is(err, ErrUserExists) {
 		t.Fatalf("Create err=%v want ErrUserExists", err)
 	}
 }
@@ -72,11 +75,7 @@ func TestPostgresUserStoreGetByEmail(t *testing.T) {
 	t.Parallel()
 
 	db, mock := newMockDB(t)
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("db.Close: %v", err)
-		}
-	})
+	cleanupDB(t, db, mock)
 	store := NewPostgresUserStore(db)
 
 	user := testUser()
@@ -99,18 +98,14 @@ func TestPostgresUserStoreGetByEmailNotFound(t *testing.T) {
 	t.Parallel()
 
 	db, mock := newMockDB(t)
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("db.Close: %v", err)
-		}
-	})
+	cleanupDB(t, db, mock)
 	store := NewPostgresUserStore(db)
 
 	mock.ExpectQuery("SELECT").
 		WithArgs("missing@example.com").
 		WillReturnError(sql.ErrNoRows)
 
-	if _, err := store.GetByEmail(context.Background(), "missing@example.com"); err != ErrUserNotFound {
+	if _, err := store.GetByEmail(context.Background(), "missing@example.com"); !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("err=%v want ErrUserNotFound", err)
 	}
 }
@@ -119,11 +114,7 @@ func TestPostgresUserStoreCreateError(t *testing.T) {
 	t.Parallel()
 
 	db, mock := newMockDB(t)
-	t.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			t.Fatalf("db.Close: %v", err)
-		}
-	})
+	cleanupDB(t, db, mock)
 	store := NewPostgresUserStore(db)
 
 	user := testUser()

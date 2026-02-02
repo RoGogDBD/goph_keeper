@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,11 +16,6 @@ import (
 	"goph_keeper/internal/client/crypto"
 	"goph_keeper/internal/client/store"
 )
-
-// RunUI starts the TUI with a default HTTP client.
-func RunUI(baseURL, dataDir string) error {
-	return RunUIWithHTTPClient(baseURL, dataDir, nil)
-}
 
 // RunUIWithHTTPClient starts the TUI with a custom HTTP client.
 func RunUIWithHTTPClient(baseURL, dataDir string, httpClient *http.Client) error {
@@ -65,7 +61,7 @@ type uiState struct {
 	masterPasswordSet bool
 }
 
-func showAuthForm(app *tview.Application, pages *tview.Pages, cli *api.Client, status *tview.TextView, mode string, state *uiState) {
+func showAuthForm(app *tview.Application, pages *tview.Pages, cli *api.Client, status *tview.TextView, mode string, _ *uiState) {
 	form := tview.NewForm()
 	var email, password string
 	form.AddInputField("Email", "", 40, nil, func(v string) { email = v })
@@ -102,11 +98,11 @@ func showMasterPasswordForm(app *tview.Application, pages *tview.Pages, cli *api
 	var master string
 	form.AddPasswordField("Master Password", "", 40, '*', func(v string) { master = v })
 	form.AddButton("Set", func() {
-		crypto, err := crypto.NewCrypto(master, dataDir)
+		cryptoSvc, err := crypto.NewCrypto(master, dataDir)
 		if err != nil {
 			status.SetText(fmt.Sprintf("[red]Error: %v", err))
 		} else {
-			cli.SetCrypto(crypto)
+			cli.SetCrypto(cryptoSvc)
 			state.masterPasswordSet = true
 			status.SetText("Master password set")
 		}
@@ -237,7 +233,7 @@ func doSync(app *tview.Application, cli *api.Client, local *store.LocalStore, st
 	go func() {
 		syncStore := store.NewSyncStore(dataDir)
 		since, err := syncStore.Load()
-		if err != nil && err != store.ErrSyncNotFound {
+		if err != nil && !errors.Is(err, store.ErrSyncNotFound) {
 			app.QueueUpdateDraw(func() { status.SetText(fmt.Sprintf("[red]Error: %v", err)) })
 			return
 		}

@@ -17,19 +17,19 @@ type routerSecretStore struct{}
 func (r *routerSecretStore) Create(_ context.Context, secret models.Secret) (models.Secret, error) {
 	return secret, nil
 }
-func (r *routerSecretStore) GetByID(_ context.Context, ownerID, id string) (models.Secret, error) {
+func (r *routerSecretStore) GetByID(_ context.Context, _, _ string) (models.Secret, error) {
 	return models.Secret{}, repository.ErrSecretNotFound
 }
-func (r *routerSecretStore) ListByOwner(_ context.Context, ownerID string) ([]models.Secret, error) {
+func (r *routerSecretStore) ListByOwner(_ context.Context, _ string) ([]models.Secret, error) {
 	return []models.Secret{}, nil
 }
-func (r *routerSecretStore) ListUpdatedSince(_ context.Context, ownerID string, since time.Time) ([]models.Secret, error) {
+func (r *routerSecretStore) ListUpdatedSince(_ context.Context, _ string, _ time.Time) ([]models.Secret, error) {
 	return []models.Secret{}, nil
 }
 func (r *routerSecretStore) Update(_ context.Context, secret models.Secret) (models.Secret, error) {
 	return secret, nil
 }
-func (r *routerSecretStore) Delete(_ context.Context, ownerID, id string) error {
+func (r *routerSecretStore) Delete(_ context.Context, _, _ string) error {
 	return nil
 }
 func (r *routerSecretStore) Upsert(_ context.Context, secret models.Secret) (models.Secret, error) {

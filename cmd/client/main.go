@@ -25,7 +25,7 @@ import (
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		if !errors.Is(err, errUsage) {
-			fmt.Fprintln(os.Stderr, err)
+			printErrLine(err.Error())
 		}
 		os.Exit(1)
 	}
@@ -35,7 +35,7 @@ var errUsage = errors.New("usage")
 
 func run(args []string) error {
 	if len(args) > 0 && args[0] == "version" {
-		fmt.Println(version.Info())
+		printLine(version.Info())
 		return nil
 	}
 
@@ -51,7 +51,7 @@ func run(args []string) error {
 	}
 
 	if showVersion {
-		fmt.Println(version.Info())
+		printLine(version.Info())
 		return nil
 	}
 
@@ -191,7 +191,7 @@ func handleRegister(ctx context.Context, cli *api.Client, args []string) error {
 	if err := cli.Register(ctx, api.RegisterRequest{Email: email, Password: password}); err != nil {
 		return fmt.Errorf("register error: %w", err)
 	}
-	fmt.Println("registered")
+	printLine("registered")
 	return nil
 }
 
@@ -211,7 +211,7 @@ func handleLogin(ctx context.Context, cli *api.Client, args []string) error {
 	if err := cli.Login(ctx, api.LoginRequest{Email: email, Password: password}); err != nil {
 		return fmt.Errorf("login error: %w", err)
 	}
-	fmt.Println("logged in")
+	printLine("logged in")
 	return nil
 }
 
@@ -251,7 +251,7 @@ func handleAdd(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.C
 	if err := local.Upsert(ctx, item, true); err != nil {
 		return fmt.Errorf("local save error: %w", err)
 	}
-	fmt.Println(item.ID)
+	printLine(item.ID)
 	return nil
 }
 
@@ -261,7 +261,7 @@ func handleList(ctx context.Context, local *store.LocalStore) error {
 		return fmt.Errorf("list error: %w", err)
 	}
 	for _, s := range list {
-		fmt.Printf("%s %s %s\n", s.ID, s.Type, s.UpdatedAt.Format("2006-01-02T15:04:05Z"))
+		printFmt("%s %s %s\n", s.ID, s.Type, s.UpdatedAt.Format("2006-01-02T15:04:05Z"))
 	}
 	return nil
 }
@@ -292,7 +292,7 @@ func handleGet(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.C
 		}
 		secret.Payload = dec
 	}
-	fmt.Printf("id=%s type=%s payload=%s meta=%v updated_at=%s\n",
+	printFmt("id=%s type=%s payload=%s meta=%v updated_at=%s\n",
 		secret.ID, secret.Type, strings.TrimSpace(string(secret.Payload)), secret.Meta, secret.UpdatedAt.Format(time.RFC3339))
 	return nil
 }
@@ -338,7 +338,7 @@ func handleUpdate(ctx context.Context, local *store.LocalStore, cryptoSvc *crypt
 	if err := local.Upsert(ctx, item, true); err != nil {
 		return fmt.Errorf("local update error: %w", err)
 	}
-	fmt.Println(item.ID)
+	printLine(item.ID)
 	return nil
 }
 
@@ -356,7 +356,7 @@ func handleDelete(ctx context.Context, local *store.LocalStore, args []string) e
 
 	createdAt := time.Now().UTC()
 	itemType := "deleted"
-	payload := []byte{}
+	var payload []byte
 	if existing, err := local.Get(ctx, id); err == nil {
 		createdAt = existing.CreatedAt
 		itemType = existing.Type
@@ -374,14 +374,14 @@ func handleDelete(ctx context.Context, local *store.LocalStore, args []string) e
 	if err := local.Upsert(ctx, item, true); err != nil {
 		return fmt.Errorf("local delete error: %w", err)
 	}
-	fmt.Println("deleted")
+	printLine("deleted")
 	return nil
 }
 
 func handleSync(ctx context.Context, cli *api.Client, local *store.LocalStore, dataDir string) error {
 	syncStore := store.NewSyncStore(dataDir)
 	since, err := syncStore.Load()
-	if err != nil && err != store.ErrSyncNotFound {
+	if err != nil && !errors.Is(err, store.ErrSyncNotFound) {
 		return fmt.Errorf("sync state error: %w", err)
 	}
 
@@ -417,30 +417,48 @@ func handleSync(ctx context.Context, cli *api.Client, local *store.LocalStore, d
 		if item.Deleted {
 			status = "deleted"
 		}
-		fmt.Printf("%s %s %s %s\n", item.ID, item.Type, status, item.UpdatedAt.Format(time.RFC3339))
+		printFmt("%s %s %s %s\n", item.ID, item.Type, status, item.UpdatedAt.Format(time.RFC3339))
 	}
 
 	if err := syncStore.Save(time.Now().UTC()); err != nil {
 		return fmt.Errorf("sync save error: %w", err)
 	}
-	fmt.Printf("synced %d items\n", len(items))
+	printFmt("synced %d items\n", len(items))
 	return nil
 }
 
 func printClientUsage() {
-	fmt.Println("Usage:")
-	fmt.Println("  client [--config path] [--master-password pwd] <command> [flags]")
-	fmt.Println("Commands:")
-	fmt.Println("  register --email --password")
-	fmt.Println("  login    --email --password")
-	fmt.Println("  add      --type --payload [--meta k=v,...]")
-	fmt.Println("  list")
-	fmt.Println("  get      --id")
-	fmt.Println("  update   --id --type --payload [--meta k=v,...]")
-	fmt.Println("  delete   --id")
-	fmt.Println("  sync")
-	fmt.Println("  ui")
-	fmt.Println("  version")
+	printLine("Usage:")
+	printLine("  client [--config path] [--master-password pwd] <command> [flags]")
+	printLine("Commands:")
+	printLine("  register --email --password")
+	printLine("  login    --email --password")
+	printLine("  add      --type --payload [--meta k=v,...]")
+	printLine("  list")
+	printLine("  get      --id")
+	printLine("  update   --id --type --payload [--meta k=v,...]")
+	printLine("  delete   --id")
+	printLine("  sync")
+	printLine("  ui")
+	printLine("  version")
+}
+
+func printLine(line string) {
+	if _, err := fmt.Fprintln(os.Stdout, line); err != nil {
+		_ = err
+	}
+}
+
+func printFmt(format string, args ...any) {
+	if _, err := fmt.Fprintf(os.Stdout, format, args...); err != nil {
+		_ = err
+	}
+}
+
+func printErrLine(line string) {
+	if _, err := fmt.Fprintln(os.Stderr, line); err != nil {
+		_ = err
+	}
 }
 
 func newID() string {

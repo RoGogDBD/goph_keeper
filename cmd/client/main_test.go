@@ -38,7 +38,7 @@ func TestBuildCryptoAndHTTPClient(t *testing.T) {
 	}
 
 	cfg := config.ClientConfig{
-		ServerURL: "http://example.com",
+		ServerURL: "https://example.com",
 		DataDir:   t.TempDir(),
 		Log:       config.LogConfig{Level: "info", Format: "text"},
 	}
