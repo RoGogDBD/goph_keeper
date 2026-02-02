@@ -14,28 +14,32 @@ import (
 	"goph_keeper/internal/repository"
 )
 
+// SecretHandler handles secret CRUD endpoints.
 type SecretHandler struct {
-	store repository.SecretStore
+	store repository.SecretReadWriter
 }
 
-func NewSecretHandler(store repository.SecretStore) *SecretHandler {
+// NewSecretHandler creates a SecretHandler.
+func NewSecretHandler(store repository.SecretReadWriter) *SecretHandler {
 	return &SecretHandler{store: store}
 }
 
-type secretRequest struct {
-	Type    string            `json:"type"`
-	Payload []byte            `json:"payload"`
-	Meta    map[string]string `json:"meta"`
-}
+type (
+	secretRequest struct {
+		Type    string            `json:"type"`
+		Payload []byte            `json:"payload"`
+		Meta    map[string]string `json:"meta"`
+	}
 
-type secretResponse struct {
-	ID        string            `json:"id"`
-	Type      string            `json:"type"`
-	Payload   []byte            `json:"payload"`
-	Meta      map[string]string `json:"meta"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
-}
+	secretResponse struct {
+		ID        string            `json:"id"`
+		Type      string            `json:"type"`
+		Payload   []byte            `json:"payload"`
+		Meta      map[string]string `json:"meta"`
+		CreatedAt time.Time         `json:"created_at"`
+		UpdatedAt time.Time         `json:"updated_at"`
+	}
+)
 
 func (h *SecretHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -91,6 +95,7 @@ func (h *SecretHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toSecretResponse(created))
 }
 
+// List returns all secrets for the current user.
 func (h *SecretHandler) List(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -117,6 +122,7 @@ func (h *SecretHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// Get returns a secret by ID.
 func (h *SecretHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -148,6 +154,7 @@ func (h *SecretHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toSecretResponse(secret))
 }
 
+// Update modifies a secret by ID.
 func (h *SecretHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -204,6 +211,7 @@ func (h *SecretHandler) Update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toSecretResponse(updated))
 }
 
+// Delete marks a secret as deleted.
 func (h *SecretHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")

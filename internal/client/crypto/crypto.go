@@ -19,13 +19,16 @@ const (
 	nonceSize    = 12
 )
 
+// ErrEmptyMasterPassword indicates missing master password.
 var ErrEmptyMasterPassword = errors.New("master password is required")
 
 // Crypto handles payload encryption/decryption on the client side.
+// Crypto encrypts and decrypts payloads using a master password.
 type Crypto struct {
 	key []byte
 }
 
+// NewCrypto initializes a Crypto instance.
 func NewCrypto(masterPassword, dataDir string) (*Crypto, error) {
 	if masterPassword == "" {
 		return nil, ErrEmptyMasterPassword
@@ -44,6 +47,7 @@ func NewCrypto(masterPassword, dataDir string) (*Crypto, error) {
 	return &Crypto{key: key}, nil
 }
 
+// Encrypt encrypts plaintext bytes.
 func (c *Crypto) Encrypt(plain []byte) ([]byte, error) {
 	block, err := aes.NewCipher(c.key)
 	if err != nil {
@@ -65,6 +69,7 @@ func (c *Crypto) Encrypt(plain []byte) ([]byte, error) {
 	return out, nil
 }
 
+// Decrypt decrypts ciphertext bytes.
 func (c *Crypto) Decrypt(ciphertext []byte) ([]byte, error) {
 	if len(ciphertext) < nonceSize {
 		return nil, errors.New("invalid ciphertext")

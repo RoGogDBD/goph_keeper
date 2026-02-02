@@ -2,6 +2,7 @@ package store
 
 import "strings"
 
+// ParseMeta parses k=v pairs separated by commas.
 func ParseMeta(input string) map[string]string {
 	result := map[string]string{}
 	if strings.TrimSpace(input) == "" {

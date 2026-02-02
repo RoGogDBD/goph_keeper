@@ -12,18 +12,22 @@ import (
 	"goph_keeper/internal/repository"
 )
 
+// Service provides user registration and login.
 type Service struct {
 	store repository.UserStore
 	jwt   *JWTService
 	ttl   time.Duration
 }
 
+// NewService creates an auth service.
 func NewService(store repository.UserStore, jwt *JWTService, ttl time.Duration) *Service {
 	return &Service{store: store, jwt: jwt, ttl: ttl}
 }
 
+// ErrInvalidCredentials indicates invalid login credentials.
 var ErrInvalidCredentials = errors.New("invalid credentials")
 
+// Register creates a new user.
 func (s *Service) Register(ctx context.Context, email, password string) (models.User, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" || password == "" {
@@ -50,6 +54,7 @@ func (s *Service) Register(ctx context.Context, email, password string) (models.
 	return s.store.Create(ctx, user)
 }
 
+// Login validates credentials and returns a JWT token.
 func (s *Service) Login(ctx context.Context, email, password string) (string, error) {
 	user, err := s.store.GetByEmail(ctx, strings.TrimSpace(strings.ToLower(email)))
 	if err != nil {

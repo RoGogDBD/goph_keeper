@@ -8,11 +8,13 @@ import (
 	"goph_keeper/internal/repository"
 )
 
+// SyncHandler handles sync endpoints.
 type SyncHandler struct {
-	store repository.SecretStore
+	store repository.SecretSyncStore
 }
 
-func NewSyncHandler(store repository.SecretStore) *SyncHandler {
+// NewSyncHandler creates a SyncHandler.
+func NewSyncHandler(store repository.SecretSyncStore) *SyncHandler {
 	return &SyncHandler{store: store}
 }
 
@@ -26,17 +28,19 @@ type syncItem struct {
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
-type syncPullResponse struct {
-	Items []syncItem `json:"items"`
-}
+type (
+	syncPullResponse struct {
+		Items []syncItem `json:"items"`
+	}
 
-type syncPushRequest struct {
-	Items []syncItem `json:"items"`
-}
+	syncPushRequest struct {
+		Items []syncItem `json:"items"`
+	}
 
-type syncPushResponse struct {
-	Applied int `json:"applied"`
-}
+	syncPushResponse struct {
+		Applied int `json:"applied"`
+	}
+)
 
 func (h *SyncHandler) Pull(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -74,6 +78,7 @@ func (h *SyncHandler) Pull(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// Push applies client changes to the server.
 func (h *SyncHandler) Push(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")

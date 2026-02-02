@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// Validate validates server configuration values.
 func (c ServerConfig) Validate() error {
 	if strings.TrimSpace(c.Host) == "" {
 		return errors.New("server host is required")
@@ -32,9 +33,15 @@ func (c ServerConfig) Validate() error {
 	if strings.TrimSpace(c.JWTKey) == "" {
 		return errors.New("jwt_key is required")
 	}
+	if c.TLS.Enabled {
+		if strings.TrimSpace(c.TLS.CertFile) == "" || strings.TrimSpace(c.TLS.KeyFile) == "" {
+			return errors.New("tls cert and key are required when tls is enabled")
+		}
+	}
 	return nil
 }
 
+// Validate validates client configuration values.
 func (c ClientConfig) Validate() error {
 	if strings.TrimSpace(c.ServerURL) == "" {
 		return errors.New("server_url is required")

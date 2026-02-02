@@ -11,6 +11,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
+// RunMigrations applies DB migrations.
 func RunMigrations(dsn, migrationsPath string) error {
 	sourceURL := migrationsPath
 	if !strings.HasPrefix(sourceURL, "file://") {

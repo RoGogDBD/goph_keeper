@@ -10,13 +10,16 @@ import (
 	"path/filepath"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	_ "modernc.org/sqlite"
 )
 
+// LocalStore manages local secret storage on disk.
 type LocalStore struct {
 	db *sql.DB
 }
 
+// NewLocalStore opens a LocalStore for a data directory.
 func NewLocalStore(dataDir string) (*LocalStore, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, err
@@ -29,17 +32,21 @@ func NewLocalStore(dataDir string) (*LocalStore, error) {
 	}
 
 	if err := migrateLocal(db); err != nil {
-		_ = db.Close()
+		if cerr := db.Close(); cerr != nil {
+			return nil, fmt.Errorf("close local db after migrate: %v (migrate: %w)", cerr, err)
+		}
 		return nil, err
 	}
 
 	return &LocalStore{db: db}, nil
 }
 
+// Close closes the underlying database.
 func (s *LocalStore) Close() error {
 	return s.db.Close()
 }
 
+// Upsert inserts or updates a local secret.
 func (s *LocalStore) Upsert(ctx context.Context, item Item, dirty bool) error {
 	if item.Deleted && item.Type == "" {
 		item.Type = "deleted"
@@ -52,9 +59,20 @@ func (s *LocalStore) Upsert(ctx context.Context, item Item, dirty bool) error {
 		return err
 	}
 
-	query := `
-INSERT INTO secrets_local (id, type, payload, meta, deleted, created_at, updated_at, dirty)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	builder := sq.StatementBuilder.PlaceholderFormat(sq.Question).
+		Insert("secrets_local").
+		Columns("id", "type", "payload", "meta", "deleted", "created_at", "updated_at", "dirty").
+		Values(
+			item.ID,
+			item.Type,
+			item.Payload,
+			meta,
+			item.Deleted,
+			item.CreatedAt.UTC().Format(time.RFC3339),
+			item.UpdatedAt.UTC().Format(time.RFC3339),
+			dirty,
+		).
+		Suffix(`
 ON CONFLICT(id) DO UPDATE SET
   type=excluded.type,
   payload=excluded.payload,
@@ -62,64 +80,79 @@ ON CONFLICT(id) DO UPDATE SET
   deleted=excluded.deleted,
   created_at=excluded.created_at,
   updated_at=excluded.updated_at,
-  dirty=excluded.dirty
-`
+  dirty=excluded.dirty`)
 
-	_, err = s.db.ExecContext(ctx, query,
-		item.ID,
-		item.Type,
-		item.Payload,
-		meta,
-		item.Deleted,
-		item.CreatedAt.UTC().Format(time.RFC3339),
-		item.UpdatedAt.UTC().Format(time.RFC3339),
-		dirty,
-	)
+	query, args, err := builder.ToSql()
+	if err != nil {
+		return fmt.Errorf("build upsert local: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("upsert local: %w", err)
 	}
 	return nil
 }
 
+// Get fetches a local secret by ID.
 func (s *LocalStore) Get(ctx context.Context, id string) (Item, error) {
-	query := `
-SELECT id, type, payload, meta, deleted, created_at, updated_at, dirty
-FROM secrets_local
-WHERE id = ?
-`
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Question).
+		Select("id", "type", "payload", "meta", "deleted", "created_at", "updated_at", "dirty").
+		From("secrets_local").
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return Item{}, err
+	}
 
 	var item Item
 	var meta []byte
 	var createdAt, updatedAt string
 	var dirty bool
-	row := s.db.QueryRowContext(ctx, query, id)
+	row := s.db.QueryRowContext(ctx, query, args...)
 	if err := row.Scan(&item.ID, &item.Type, &item.Payload, &meta, &item.Deleted, &createdAt, &updatedAt, &dirty); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Item{}, ErrNotFound
 		}
 		return Item{}, err
 	}
-	_ = json.Unmarshal(meta, &item.Meta)
-	item.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	item.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	if len(meta) > 0 {
+		if err := json.Unmarshal(meta, &item.Meta); err != nil {
+			return Item{}, err
+		}
+	}
+	parsedCreated, err := time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return Item{}, err
+	}
+	parsedUpdated, err := time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		return Item{}, err
+	}
+	item.CreatedAt = parsedCreated
+	item.UpdatedAt = parsedUpdated
 	return item, nil
 }
 
+// List returns all local secrets.
 func (s *LocalStore) List(ctx context.Context, includeDeleted bool) ([]Item, error) {
-	query := `
-SELECT id, type, payload, meta, deleted, created_at, updated_at, dirty
-FROM secrets_local
-`
+	builder := sq.StatementBuilder.PlaceholderFormat(sq.Question).
+		Select("id", "type", "payload", "meta", "deleted", "created_at", "updated_at", "dirty").
+		From("secrets_local").
+		OrderBy("updated_at DESC")
 	if !includeDeleted {
-		query += " WHERE deleted = 0"
+		builder = builder.Where(sq.Eq{"deleted": 0})
 	}
-	query += " ORDER BY updated_at DESC"
 
-	rows, err := s.db.QueryContext(ctx, query)
+	query, args, err := builder.ToSql()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
 
 	var items []Item
 	for rows.Next() {
@@ -128,33 +161,66 @@ FROM secrets_local
 		var createdAt, updatedAt string
 		var dirty bool
 		if err := rows.Scan(&item.ID, &item.Type, &item.Payload, &meta, &item.Deleted, &createdAt, &updatedAt, &dirty); err != nil {
+			if cerr := rows.Close(); cerr != nil {
+				return nil, fmt.Errorf("close rows after scan error: %v (scan: %w)", cerr, err)
+			}
 			return nil, err
 		}
-		_ = json.Unmarshal(meta, &item.Meta)
-		item.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		item.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		if len(meta) > 0 {
+			if err := json.Unmarshal(meta, &item.Meta); err != nil {
+				if cerr := rows.Close(); cerr != nil {
+					return nil, fmt.Errorf("close rows after decode error: %v (decode: %w)", cerr, err)
+				}
+				return nil, err
+			}
+		}
+		parsedCreated, err := time.Parse(time.RFC3339, createdAt)
+		if err != nil {
+			if cerr := rows.Close(); cerr != nil {
+				return nil, fmt.Errorf("close rows after parse error: %v (parse: %w)", cerr, err)
+			}
+			return nil, err
+		}
+		parsedUpdated, err := time.Parse(time.RFC3339, updatedAt)
+		if err != nil {
+			if cerr := rows.Close(); cerr != nil {
+				return nil, fmt.Errorf("close rows after parse error: %v (parse: %w)", cerr, err)
+			}
+			return nil, err
+		}
+		item.CreatedAt = parsedCreated
+		item.UpdatedAt = parsedUpdated
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
+		if cerr := rows.Close(); cerr != nil {
+			return nil, fmt.Errorf("close rows after iterate error: %v (iterate: %w)", cerr, err)
+		}
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
 		return nil, err
 	}
 
 	return items, nil
 }
 
+// ListDirty returns secrets marked as dirty.
 func (s *LocalStore) ListDirty(ctx context.Context) ([]Item, error) {
-	query := `
-SELECT id, type, payload, meta, deleted, created_at, updated_at, dirty
-FROM secrets_local
-WHERE dirty = 1
-ORDER BY updated_at ASC
-`
-
-	rows, err := s.db.QueryContext(ctx, query)
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Question).
+		Select("id", "type", "payload", "meta", "deleted", "created_at", "updated_at", "dirty").
+		From("secrets_local").
+		Where(sq.Eq{"dirty": 1}).
+		OrderBy("updated_at ASC").
+		ToSql()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
 
 	var items []Item
 	for rows.Next() {
@@ -163,33 +229,70 @@ ORDER BY updated_at ASC
 		var createdAt, updatedAt string
 		var dirty bool
 		if err := rows.Scan(&item.ID, &item.Type, &item.Payload, &meta, &item.Deleted, &createdAt, &updatedAt, &dirty); err != nil {
+			if cerr := rows.Close(); cerr != nil {
+				return nil, fmt.Errorf("close rows after scan error: %v (scan: %w)", cerr, err)
+			}
 			return nil, err
 		}
-		_ = json.Unmarshal(meta, &item.Meta)
-		item.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		item.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		if len(meta) > 0 {
+			if err := json.Unmarshal(meta, &item.Meta); err != nil {
+				if cerr := rows.Close(); cerr != nil {
+					return nil, fmt.Errorf("close rows after decode error: %v (decode: %w)", cerr, err)
+				}
+				return nil, err
+			}
+		}
+		parsedCreated, err := time.Parse(time.RFC3339, createdAt)
+		if err != nil {
+			if cerr := rows.Close(); cerr != nil {
+				return nil, fmt.Errorf("close rows after parse error: %v (parse: %w)", cerr, err)
+			}
+			return nil, err
+		}
+		parsedUpdated, err := time.Parse(time.RFC3339, updatedAt)
+		if err != nil {
+			if cerr := rows.Close(); cerr != nil {
+				return nil, fmt.Errorf("close rows after parse error: %v (parse: %w)", cerr, err)
+			}
+			return nil, err
+		}
+		item.CreatedAt = parsedCreated
+		item.UpdatedAt = parsedUpdated
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
+		if cerr := rows.Close(); cerr != nil {
+			return nil, fmt.Errorf("close rows after iterate error: %v (iterate: %w)", cerr, err)
+		}
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
 		return nil, err
 	}
 
 	return items, nil
 }
 
+// MarkClean clears the dirty flag for provided IDs.
 func (s *LocalStore) MarkClean(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	query := "UPDATE secrets_local SET dirty = 0 WHERE id = ?"
-	for _, id := range ids {
-		if _, err := s.db.ExecContext(ctx, query, id); err != nil {
-			return err
-		}
+	query, args, err := sq.StatementBuilder.PlaceholderFormat(sq.Question).
+		Update("secrets_local").
+		Set("dirty", 0).
+		Where(sq.Eq{"id": ids}).
+		ToSql()
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
+		return err
 	}
 	return nil
 }
 
+// ApplyRemote applies remote updates to local storage.
 func (s *LocalStore) ApplyRemote(ctx context.Context, items []Item) error {
 	for _, item := range items {
 		local, err := s.Get(ctx, item.ID)
@@ -226,4 +329,5 @@ CREATE INDEX IF NOT EXISTS idx_secrets_local_dirty ON secrets_local(dirty);
 	return err
 }
 
+// ErrNotFound indicates a missing local secret.
 var ErrNotFound = errors.New("local secret not found")

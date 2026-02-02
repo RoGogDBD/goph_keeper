@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -15,19 +16,29 @@ import (
 	"goph_keeper/internal/client/store"
 )
 
+// RunUI starts the TUI with a default HTTP client.
 func RunUI(baseURL, dataDir string) error {
+	return RunUIWithHTTPClient(baseURL, dataDir, nil)
+}
+
+// RunUIWithHTTPClient starts the TUI with a custom HTTP client.
+func RunUIWithHTTPClient(baseURL, dataDir string, httpClient *http.Client) error {
 	app := tview.NewApplication()
 	pages := tview.NewPages()
 	status := tview.NewTextView().SetDynamicColors(true)
 	status.SetText("GophKeeper UI")
 
 	tokenStore := store.NewTokenStore(dataDir)
-	cli := api.New(baseURL, tokenStore, nil)
+	cli := api.NewWithHTTPClient(baseURL, tokenStore, nil, httpClient)
 	local, err := store.NewLocalStore(dataDir)
 	if err != nil {
 		return err
 	}
-	defer local.Close()
+	defer func() {
+		if err := local.Close(); err != nil {
+			_ = err
+		}
+	}()
 
 	state := &uiState{}
 
@@ -266,14 +277,19 @@ func doSync(app *tview.Application, cli *api.Client, local *store.LocalStore, st
 			return
 		}
 
-		_ = syncStore.Save(time.Now().UTC())
+		if err := syncStore.Save(time.Now().UTC()); err != nil {
+			app.QueueUpdateDraw(func() { status.SetText(fmt.Sprintf("[red]Error: %v", err)) })
+			return
+		}
 		app.QueueUpdateDraw(func() { status.SetText(fmt.Sprintf("Synced %d items", len(items))) })
 	}()
 }
 
 func newLocalID() string {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
 	return hex.EncodeToString(b)
 }
 

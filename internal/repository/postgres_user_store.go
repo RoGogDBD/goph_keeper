@@ -13,10 +13,12 @@ import (
 	"goph_keeper/internal/models"
 )
 
+// PostgresUserStore persists users in Postgres.
 type PostgresUserStore struct {
 	db *sql.DB
 }
 
+// NewPostgresUserStore creates a Postgres-backed user store.
 func NewPostgresUserStore(db *sql.DB) *PostgresUserStore {
 	return &PostgresUserStore{db: db}
 }

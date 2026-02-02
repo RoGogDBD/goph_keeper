@@ -13,24 +13,36 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// StorageConfig describes server storage configuration.
 type StorageConfig struct {
 	Type string `json:"type" yaml:"type"`
 	DSN  string `json:"dsn" yaml:"dsn"`
 }
 
+// LogConfig configures logging level and format.
 type LogConfig struct {
 	Level  string `json:"level" yaml:"level"`
 	Format string `json:"format" yaml:"format"`
 }
 
-type ServerConfig struct {
-	Host    string        `json:"host" yaml:"host"`
-	Port    int           `json:"port" yaml:"port"`
-	Storage StorageConfig `json:"storage" yaml:"storage"`
-	Log     LogConfig     `json:"log" yaml:"log"`
-	JWTKey  string        `json:"jwt_key" yaml:"jwt_key"`
+// ServerTLSConfig configures HTTPS for the server.
+type ServerTLSConfig struct {
+	Enabled  bool   `json:"enabled" yaml:"enabled"`
+	CertFile string `json:"cert_file" yaml:"cert_file"`
+	KeyFile  string `json:"key_file" yaml:"key_file"`
 }
 
+// ServerConfig configures the server.
+type ServerConfig struct {
+	Host    string          `json:"host" yaml:"host"`
+	Port    int             `json:"port" yaml:"port"`
+	Storage StorageConfig   `json:"storage" yaml:"storage"`
+	Log     LogConfig       `json:"log" yaml:"log"`
+	JWTKey  string          `json:"jwt_key" yaml:"jwt_key"`
+	TLS     ServerTLSConfig `json:"tls" yaml:"tls"`
+}
+
+// ClientConfig configures the client.
 type ClientConfig struct {
 	ServerURL string    `json:"server_url" yaml:"server_url"`
 	DataDir   string    `json:"data_dir" yaml:"data_dir"`
@@ -39,6 +51,7 @@ type ClientConfig struct {
 	Log       LogConfig `json:"log" yaml:"log"`
 }
 
+// ServerFlagOverrides holds CLI flag overrides for server config.
 type ServerFlagOverrides struct {
 	ConfigPath string
 	Host       string
@@ -48,8 +61,12 @@ type ServerFlagOverrides struct {
 	LogLevel   string
 	LogFormat  string
 	JWTKey     string
+	TLS        string
+	TLSCert    string
+	TLSKey     string
 }
 
+// ClientFlagOverrides holds CLI flag overrides for client config.
 type ClientFlagOverrides struct {
 	ConfigPath string
 	ServerURL  string
@@ -60,6 +77,7 @@ type ClientFlagOverrides struct {
 	LogFormat  string
 }
 
+// RegisterServerFlags registers server CLI flags.
 func RegisterServerFlags(fs *flag.FlagSet, fo *ServerFlagOverrides) {
 	fs.StringVar(&fo.ConfigPath, "config", "", "path to config file (yaml or json)")
 	fs.StringVar(&fo.Host, "host", "", "server host")
@@ -69,8 +87,12 @@ func RegisterServerFlags(fs *flag.FlagSet, fo *ServerFlagOverrides) {
 	fs.StringVar(&fo.LogLevel, "log-level", "", "log level")
 	fs.StringVar(&fo.LogFormat, "log-format", "", "log format: text|json")
 	fs.StringVar(&fo.JWTKey, "jwt-key", "", "JWT signing key")
+	fs.StringVar(&fo.TLS, "tls", "", "enable TLS (true/false)")
+	fs.StringVar(&fo.TLSCert, "tls-cert", "", "path to TLS certificate file")
+	fs.StringVar(&fo.TLSKey, "tls-key", "", "path to TLS key file")
 }
 
+// RegisterClientFlags registers client CLI flags.
 func RegisterClientFlags(fs *flag.FlagSet, fo *ClientFlagOverrides) {
 	fs.StringVar(&fo.ConfigPath, "config", "", "path to config file (yaml or json)")
 	fs.StringVar(&fo.ServerURL, "server-url", "", "server base URL")
@@ -81,6 +103,7 @@ func RegisterClientFlags(fs *flag.FlagSet, fo *ClientFlagOverrides) {
 	fs.StringVar(&fo.LogFormat, "log-format", "", "log format: text|json")
 }
 
+// LoadServerConfig loads server configuration from file, env and flags.
 func LoadServerConfig(fo ServerFlagOverrides) (ServerConfig, error) {
 	cfg := defaultServerConfig()
 
@@ -97,6 +120,7 @@ func LoadServerConfig(fo ServerFlagOverrides) (ServerConfig, error) {
 	return cfg, nil
 }
 
+// LoadClientConfig loads client configuration from file, env and flags.
 func LoadClientConfig(fo ClientFlagOverrides) (ClientConfig, error) {
 	cfg := defaultClientConfig()
 
@@ -126,6 +150,11 @@ func defaultServerConfig() ServerConfig {
 			Format: "text",
 		},
 		JWTKey: "",
+		TLS: ServerTLSConfig{
+			Enabled:  false,
+			CertFile: "",
+			KeyFile:  "",
+		},
 	}
 }
 
@@ -191,6 +220,19 @@ func applyServerEnv(cfg *ServerConfig) {
 	if v, ok := os.LookupEnv("GOPHKEEPER_SERVER_JWT_KEY"); ok {
 		cfg.JWTKey = v
 	}
+	if v, ok := os.LookupEnv("GOPHKEEPER_SERVER_TLS"); ok {
+		if v == "" {
+			cfg.TLS.Enabled = false
+		} else if parsed, err := strconv.ParseBool(v); err == nil {
+			cfg.TLS.Enabled = parsed
+		}
+	}
+	if v, ok := os.LookupEnv("GOPHKEEPER_SERVER_TLS_CERT"); ok {
+		cfg.TLS.CertFile = v
+	}
+	if v, ok := os.LookupEnv("GOPHKEEPER_SERVER_TLS_KEY"); ok {
+		cfg.TLS.KeyFile = v
+	}
 }
 
 func applyClientEnv(cfg *ClientConfig) {
@@ -239,6 +281,17 @@ func applyServerFlags(cfg *ServerConfig, fo ServerFlagOverrides) {
 	}
 	if fo.JWTKey != "" {
 		cfg.JWTKey = fo.JWTKey
+	}
+	if fo.TLS != "" {
+		if parsed, err := strconv.ParseBool(fo.TLS); err == nil {
+			cfg.TLS.Enabled = parsed
+		}
+	}
+	if fo.TLSCert != "" {
+		cfg.TLS.CertFile = fo.TLSCert
+	}
+	if fo.TLSKey != "" {
+		cfg.TLS.KeyFile = fo.TLSKey
 	}
 }
 

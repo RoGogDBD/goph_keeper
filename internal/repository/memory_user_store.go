@@ -7,11 +7,13 @@ import (
 	"goph_keeper/internal/models"
 )
 
+// MemoryUserStore stores users in memory for tests.
 type MemoryUserStore struct {
 	mu    sync.RWMutex
 	users map[string]models.User
 }
 
+// NewMemoryUserStore creates an in-memory user store.
 func NewMemoryUserStore() *MemoryUserStore {
 	return &MemoryUserStore{users: make(map[string]models.User)}
 }

@@ -11,6 +11,7 @@ import (
 
 const postgresDriver = "pgx"
 
+// OpenPostgres opens a Postgres DB connection.
 func OpenPostgres(dsn string) (*sql.DB, error) {
 	db, err := sql.Open(postgresDriver, dsn)
 	if err != nil {
@@ -24,7 +25,9 @@ func OpenPostgres(dsn string) (*sql.DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
+		if cerr := db.Close(); cerr != nil {
+			return nil, fmt.Errorf("ping postgres: %w (close: %v)", err, cerr)
+		}
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 

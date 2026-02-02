@@ -12,6 +12,7 @@ type contextKey string
 
 const claimsKey contextKey = "authClaims"
 
+// AuthMiddleware validates JWT and stores claims in context.
 func AuthMiddleware(jwtSvc *auth.JWTService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,6 +40,7 @@ func AuthMiddleware(jwtSvc *auth.JWTService) func(http.Handler) http.Handler {
 	}
 }
 
+// ClaimsFromContext returns auth claims from context.
 func ClaimsFromContext(ctx context.Context) (auth.Claims, bool) {
 	claims, ok := ctx.Value(claimsKey).(auth.Claims)
 	return claims, ok

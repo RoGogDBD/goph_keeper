@@ -14,6 +14,7 @@ import (
 	"goph_keeper/internal/client/crypto"
 )
 
+// Client is an HTTP client for GophKeeper API.
 type Client struct {
 	baseURL string
 	http    *http.Client
@@ -21,50 +22,65 @@ type Client struct {
 	crypto  *crypto.Crypto
 }
 
+// TokenStore persists auth tokens between runs.
 type TokenStore interface {
 	Load() (string, error)
 	Save(token string) error
 }
 
+// New creates a Client with a default HTTP client.
 func New(baseURL string, tokens TokenStore, crypto *crypto.Crypto) *Client {
+	return NewWithHTTPClient(baseURL, tokens, crypto, nil)
+}
+
+// NewWithHTTPClient creates a Client with a custom HTTP client.
+func NewWithHTTPClient(baseURL string, tokens TokenStore, crypto *crypto.Crypto, httpClient *http.Client) *Client {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-		tokens: tokens,
-		crypto: crypto,
+		http:    httpClient,
+		tokens:  tokens,
+		crypto:  crypto,
 	}
 }
 
+// SetCrypto updates the crypto service used for payload encryption.
 func (c *Client) SetCrypto(crypto *crypto.Crypto) {
 	c.crypto = crypto
 }
 
+// Crypto returns the currently configured crypto service.
 func (c *Client) Crypto() *crypto.Crypto {
 	return c.crypto
 }
 
+// RegisterRequest is a registration payload.
 type RegisterRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
+// LoginRequest is a login payload.
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
+// LoginResponse is a login response.
 type LoginResponse struct {
 	Token string `json:"token"`
 }
 
+// SecretRequest is a secret create/update payload.
 type SecretRequest struct {
 	Type    string            `json:"type"`
 	Payload []byte            `json:"payload"`
 	Meta    map[string]string `json:"meta"`
 }
 
+// SecretResponse is a secret response.
 type SecretResponse struct {
 	ID        string            `json:"id"`
 	Type      string            `json:"type"`
@@ -74,6 +90,7 @@ type SecretResponse struct {
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
+// SyncItem represents an item in sync operations.
 type SyncItem struct {
 	ID        string            `json:"id"`
 	Type      string            `json:"type"`
@@ -84,22 +101,27 @@ type SyncItem struct {
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
+// SyncPullResponse contains items returned by sync pull.
 type SyncPullResponse struct {
 	Items []SyncItem `json:"items"`
 }
 
+// SyncPushRequest contains items sent to sync push.
 type SyncPushRequest struct {
 	Items []SyncItem `json:"items"`
 }
 
+// SyncPushResponse contains count of applied items.
 type SyncPushResponse struct {
 	Applied int `json:"applied"`
 }
 
+// Register registers a new user.
 func (c *Client) Register(ctx context.Context, req RegisterRequest) error {
 	return c.do(ctx, http.MethodPost, "/api/register", req, nil, false)
 }
 
+// Login authenticates a user and stores the token.
 func (c *Client) Login(ctx context.Context, req LoginRequest) error {
 	var resp LoginResponse
 	if err := c.do(ctx, http.MethodPost, "/api/login", req, &resp, false); err != nil {
@@ -111,6 +133,7 @@ func (c *Client) Login(ctx context.Context, req LoginRequest) error {
 	return c.tokens.Save(resp.Token)
 }
 
+// CreateSecret creates a secret on the server.
 func (c *Client) CreateSecret(ctx context.Context, req SecretRequest) (SecretResponse, error) {
 	if c.crypto != nil && len(req.Payload) > 0 {
 		enc, err := c.crypto.Encrypt(req.Payload)
@@ -126,6 +149,7 @@ func (c *Client) CreateSecret(ctx context.Context, req SecretRequest) (SecretRes
 	return resp, nil
 }
 
+// ListSecrets lists all secrets for the current user.
 func (c *Client) ListSecrets(ctx context.Context) ([]SecretResponse, error) {
 	var resp []SecretResponse
 	if err := c.do(ctx, http.MethodGet, "/api/secrets", nil, &resp, true); err != nil {
@@ -134,6 +158,7 @@ func (c *Client) ListSecrets(ctx context.Context) ([]SecretResponse, error) {
 	return resp, nil
 }
 
+// GetSecret fetches a secret by ID.
 func (c *Client) GetSecret(ctx context.Context, id string) (SecretResponse, error) {
 	var resp SecretResponse
 	if err := c.do(ctx, http.MethodGet, "/api/secrets/"+id, nil, &resp, true); err != nil {
@@ -149,6 +174,7 @@ func (c *Client) GetSecret(ctx context.Context, id string) (SecretResponse, erro
 	return resp, nil
 }
 
+// UpdateSecret updates a secret by ID.
 func (c *Client) UpdateSecret(ctx context.Context, id string, req SecretRequest) (SecretResponse, error) {
 	if c.crypto != nil && len(req.Payload) > 0 {
 		enc, err := c.crypto.Encrypt(req.Payload)
@@ -164,14 +190,17 @@ func (c *Client) UpdateSecret(ctx context.Context, id string, req SecretRequest)
 	return resp, nil
 }
 
+// DeleteSecret removes a secret by ID.
 func (c *Client) DeleteSecret(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/api/secrets/"+id, nil, nil, true)
 }
 
+// SyncPull pulls changes and decrypts payloads when crypto is set.
 func (c *Client) SyncPull(ctx context.Context, since time.Time) ([]SyncItem, error) {
 	return c.syncPull(ctx, since, true)
 }
 
+// SyncPullEncrypted pulls changes without decrypting payloads.
 func (c *Client) SyncPullEncrypted(ctx context.Context, since time.Time) ([]SyncItem, error) {
 	return c.syncPull(ctx, since, false)
 }
@@ -200,10 +229,12 @@ func (c *Client) syncPull(ctx context.Context, since time.Time, decrypt bool) ([
 	return resp.Items, nil
 }
 
+// SyncPush pushes changes and encrypts payloads when crypto is set.
 func (c *Client) SyncPush(ctx context.Context, items []SyncItem) (int, error) {
 	return c.syncPush(ctx, items, true)
 }
 
+// SyncPushEncrypted pushes changes without encrypting payloads.
 func (c *Client) SyncPushEncrypted(ctx context.Context, items []SyncItem) (int, error) {
 	return c.syncPush(ctx, items, false)
 }
@@ -257,10 +288,17 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any,
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			_ = cerr
+		}
+	}()
 
 	if resp.StatusCode >= 400 {
-		msg, _ := io.ReadAll(resp.Body)
+		msg, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
 		return fmt.Errorf("request failed: %s", strings.TrimSpace(string(msg)))
 	}
 

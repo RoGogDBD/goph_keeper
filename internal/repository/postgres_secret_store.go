@@ -12,10 +12,12 @@ import (
 	"goph_keeper/internal/models"
 )
 
+// PostgresSecretStore persists secrets in Postgres.
 type PostgresSecretStore struct {
 	db *sql.DB
 }
 
+// NewPostgresSecretStore creates a Postgres-backed secret store.
 func NewPostgresSecretStore(db *sql.DB) *PostgresSecretStore {
 	return &PostgresSecretStore{db: db}
 }
@@ -63,7 +65,9 @@ func (s *PostgresSecretStore) GetByID(ctx context.Context, ownerID, id string) (
 		return models.Secret{}, fmt.Errorf("get secret: %w", err)
 	}
 	if len(meta) > 0 {
-		_ = json.Unmarshal(meta, &secret.Meta)
+		if err := json.Unmarshal(meta, &secret.Meta); err != nil {
+			return models.Secret{}, fmt.Errorf("decode meta: %w", err)
+		}
 	}
 	return secret, nil
 }
@@ -83,22 +87,35 @@ func (s *PostgresSecretStore) ListByOwner(ctx context.Context, ownerID string) (
 	if err != nil {
 		return nil, fmt.Errorf("list secrets: %w", err)
 	}
-	defer rows.Close()
 
 	var secrets []models.Secret
 	for rows.Next() {
 		var secret models.Secret
 		var meta []byte
 		if err := rows.Scan(&secret.ID, &secret.OwnerID, &secret.Type, &secret.Payload, &meta, &secret.CreatedAt, &secret.UpdatedAt); err != nil {
+			if cerr := rows.Close(); cerr != nil {
+				return nil, fmt.Errorf("close rows after scan error: %v (scan: %w)", cerr, err)
+			}
 			return nil, fmt.Errorf("scan secret: %w", err)
 		}
 		if len(meta) > 0 {
-			_ = json.Unmarshal(meta, &secret.Meta)
+			if err := json.Unmarshal(meta, &secret.Meta); err != nil {
+				if cerr := rows.Close(); cerr != nil {
+					return nil, fmt.Errorf("close rows after decode error: %v (decode: %w)", cerr, err)
+				}
+				return nil, fmt.Errorf("decode meta: %w", err)
+			}
 		}
 		secrets = append(secrets, secret)
 	}
 	if err := rows.Err(); err != nil {
+		if cerr := rows.Close(); cerr != nil {
+			return nil, fmt.Errorf("close rows after iterate error: %v (iterate: %w)", cerr, err)
+		}
 		return nil, fmt.Errorf("iterate secrets: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close rows: %w", err)
 	}
 
 	return secrets, nil
@@ -120,22 +137,35 @@ func (s *PostgresSecretStore) ListUpdatedSince(ctx context.Context, ownerID stri
 	if err != nil {
 		return nil, fmt.Errorf("list updated secrets: %w", err)
 	}
-	defer rows.Close()
 
 	var secrets []models.Secret
 	for rows.Next() {
 		var secret models.Secret
 		var meta []byte
 		if err := rows.Scan(&secret.ID, &secret.OwnerID, &secret.Type, &secret.Payload, &meta, &secret.CreatedAt, &secret.UpdatedAt, &secret.Deleted); err != nil {
+			if cerr := rows.Close(); cerr != nil {
+				return nil, fmt.Errorf("close rows after scan error: %v (scan: %w)", cerr, err)
+			}
 			return nil, fmt.Errorf("scan updated secret: %w", err)
 		}
 		if len(meta) > 0 {
-			_ = json.Unmarshal(meta, &secret.Meta)
+			if err := json.Unmarshal(meta, &secret.Meta); err != nil {
+				if cerr := rows.Close(); cerr != nil {
+					return nil, fmt.Errorf("close rows after decode error: %v (decode: %w)", cerr, err)
+				}
+				return nil, fmt.Errorf("decode meta: %w", err)
+			}
 		}
 		secrets = append(secrets, secret)
 	}
 	if err := rows.Err(); err != nil {
+		if cerr := rows.Close(); cerr != nil {
+			return nil, fmt.Errorf("close rows after iterate error: %v (iterate: %w)", cerr, err)
+		}
 		return nil, fmt.Errorf("iterate updated secrets: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close rows: %w", err)
 	}
 
 	return secrets, nil
@@ -163,7 +193,11 @@ func (s *PostgresSecretStore) Update(ctx context.Context, secret models.Secret) 
 	if err != nil {
 		return models.Secret{}, fmt.Errorf("update secret: %w", err)
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return models.Secret{}, fmt.Errorf("update secret: %w", err)
+	}
+	if rows == 0 {
 		return models.Secret{}, ErrSecretNotFound
 	}
 
@@ -185,7 +219,11 @@ func (s *PostgresSecretStore) Delete(ctx context.Context, ownerID, id string) er
 	if err != nil {
 		return fmt.Errorf("delete secret: %w", err)
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete secret: %w", err)
+	}
+	if rows == 0 {
 		return ErrSecretNotFound
 	}
 	return nil

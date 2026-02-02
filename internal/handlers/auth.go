@@ -11,10 +11,12 @@ import (
 	"goph_keeper/internal/repository"
 )
 
+// AuthHandler handles auth endpoints.
 type AuthHandler struct {
 	auth *auth.Service
 }
 
+// NewAuthHandler creates an AuthHandler.
 func NewAuthHandler(authSvc *auth.Service) *AuthHandler {
 	return &AuthHandler{auth: authSvc}
 }
@@ -38,6 +40,7 @@ type meResponse struct {
 	Email  string `json:"email"`
 }
 
+// Register creates a new user.
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -70,6 +73,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
+// Login authenticates a user and returns a token.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -98,6 +102,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, loginResponse{Token: token})
 }
 
+// Me returns current user info from claims.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -119,7 +124,9 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		http.Error(w, "encode error", http.StatusInternalServerError)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
@@ -130,7 +137,9 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) error {
 	const maxBodySize = 1 << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	defer func() {
-		_ = r.Body.Close()
+		if err := r.Body.Close(); err != nil {
+			_ = err
+		}
 	}()
 
 	dec := json.NewDecoder(r.Body)

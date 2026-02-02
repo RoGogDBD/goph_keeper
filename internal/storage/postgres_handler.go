@@ -9,12 +9,17 @@ import (
 	"goph_keeper/internal/repository"
 )
 
+// PostgresStores bundles Postgres-backed stores and DB handle.
 type PostgresStores struct {
 	DB      *sql.DB
 	Users   repository.UserStore
 	Secrets repository.SecretStore
 }
 
+var openPostgresFn = OpenPostgres
+var runMigrationsFn = RunMigrations
+
+// InitPostgresStores initializes Postgres stores and runs migrations.
 func InitPostgresStores(dsn, migrationsPath string) (PostgresStores, func(), error) {
 	if strings.TrimSpace(dsn) == "" {
 		return PostgresStores{}, nil, fmt.Errorf("storage dsn is required for postgres")
@@ -25,8 +30,10 @@ func InitPostgresStores(dsn, migrationsPath string) (PostgresStores, func(), err
 		return PostgresStores{}, nil, err
 	}
 
-	if err := RunMigrations(dsn, migrationsPath); err != nil {
-		_ = db.Close()
+	if err := runMigrationsFn(dsn, migrationsPath); err != nil {
+		if cerr := db.Close(); cerr != nil {
+			return PostgresStores{}, nil, fmt.Errorf("close db after migrations: %v (migrate: %w)", cerr, err)
+		}
 		return PostgresStores{}, nil, err
 	}
 
@@ -36,13 +43,17 @@ func InitPostgresStores(dsn, migrationsPath string) (PostgresStores, func(), err
 		Secrets: repository.NewPostgresSecretStore(db),
 	}
 
-	return stores, func() { _ = db.Close() }, nil
+	return stores, func() {
+		if err := db.Close(); err != nil {
+			_ = err
+		}
+	}, nil
 }
 
 func openPostgresWithRetry(dsn string, attempts int, delay time.Duration) (*sql.DB, error) {
 	var lastErr error
 	for i := 0; i < attempts; i++ {
-		db, err := OpenPostgres(dsn)
+		db, err := openPostgresFn(dsn)
 		if err == nil {
 			return db, nil
 		}

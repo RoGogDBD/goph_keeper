@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -19,9 +23,20 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "version" {
+	if err := run(os.Args[1:]); err != nil {
+		if !errors.Is(err, errUsage) {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		os.Exit(1)
+	}
+}
+
+var errUsage = errors.New("usage")
+
+func run(args []string) error {
+	if len(args) > 0 && args[0] == "version" {
 		fmt.Println(version.Info())
-		return
+		return nil
 	}
 
 	var fo config.ClientFlagOverrides
@@ -31,70 +46,92 @@ func main() {
 	config.RegisterClientFlags(root, &fo)
 	root.BoolVar(&showVersion, "version", false, "print version and exit")
 	root.StringVar(&masterPassword, "master-password", "", "master password for encryption")
-	_ = root.Parse(os.Args[1:])
+	if err := root.Parse(args); err != nil {
+		return fmt.Errorf("parse flags: %w", err)
+	}
 
 	if showVersion {
 		fmt.Println(version.Info())
-		return
+		return nil
 	}
 
-	args := root.Args()
-	if len(args) == 0 {
+	rest := root.Args()
+	if len(rest) == 0 {
 		printClientUsage()
-		os.Exit(1)
+		return errUsage
 	}
 
 	cfg, err := config.LoadClientConfig(fo)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config error:", err)
-		os.Exit(1)
+		return fmt.Errorf("config error: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
-		fmt.Fprintln(os.Stderr, "config validation error:", err)
-		os.Exit(1)
+		return fmt.Errorf("config validation error: %w", err)
 	}
 
 	tokenStore := store.NewTokenStore(cfg.DataDir)
-	cryptoSvc, err := buildCrypto(masterPassword, cfg.DataDir, args[0])
+	cryptoSvc, err := buildCrypto(masterPassword, cfg.DataDir, rest[0])
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "crypto error:", err)
-		os.Exit(1)
+		return fmt.Errorf("crypto error: %w", err)
 	}
-	cli := api.New(cfg.ServerURL, tokenStore, cryptoSvc)
+	httpClient, err := buildHTTPClient(cfg)
+	if err != nil {
+		return fmt.Errorf("http client error: %w", err)
+	}
+	cli := api.NewWithHTTPClient(cfg.ServerURL, tokenStore, cryptoSvc, httpClient)
 	local, err := store.NewLocalStore(cfg.DataDir)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "local store error:", err)
-		os.Exit(1)
+		return fmt.Errorf("local store error: %w", err)
 	}
-	defer local.Close()
+	defer func() {
+		if cerr := local.Close(); cerr != nil {
+			_ = cerr
+		}
+	}()
 	ctx := context.Background()
 
-	switch args[0] {
+	switch rest[0] {
 	case "register":
-		handleRegister(ctx, cli, args[1:])
+		if err := handleRegister(ctx, cli, rest[1:]); err != nil {
+			return err
+		}
 	case "login":
-		handleLogin(ctx, cli, args[1:])
+		if err := handleLogin(ctx, cli, rest[1:]); err != nil {
+			return err
+		}
 	case "add":
-		handleAdd(ctx, local, cryptoSvc, args[1:])
+		if err := handleAdd(ctx, local, cryptoSvc, rest[1:]); err != nil {
+			return err
+		}
 	case "list":
-		handleList(ctx, local)
+		if err := handleList(ctx, local); err != nil {
+			return err
+		}
 	case "get":
-		handleGet(ctx, local, cryptoSvc, args[1:])
+		if err := handleGet(ctx, local, cryptoSvc, rest[1:]); err != nil {
+			return err
+		}
 	case "update":
-		handleUpdate(ctx, local, cryptoSvc, args[1:])
+		if err := handleUpdate(ctx, local, cryptoSvc, rest[1:]); err != nil {
+			return err
+		}
 	case "delete":
-		handleDelete(ctx, local, args[1:])
+		if err := handleDelete(ctx, local, rest[1:]); err != nil {
+			return err
+		}
 	case "sync":
-		handleSync(ctx, cli, local, cfg.DataDir)
+		if err := handleSync(ctx, cli, local, cfg.DataDir); err != nil {
+			return err
+		}
 	case "ui":
-		if err := ui.RunUI(cfg.ServerURL, cfg.DataDir); err != nil {
-			fmt.Fprintln(os.Stderr, "ui error:", err)
-			os.Exit(1)
+		if err := ui.RunUIWithHTTPClient(cfg.ServerURL, cfg.DataDir, httpClient); err != nil {
+			return fmt.Errorf("ui error: %w", err)
 		}
 	default:
 		printClientUsage()
-		os.Exit(1)
+		return errUsage
 	}
+	return nil
 }
 
 func buildCrypto(masterPassword, dataDir, command string) (*crypto.Crypto, error) {
@@ -111,55 +148,85 @@ func buildCrypto(masterPassword, dataDir, command string) (*crypto.Crypto, error
 	return crypto.NewCrypto(masterPassword, dataDir)
 }
 
-func handleRegister(ctx context.Context, cli *api.Client, args []string) {
+func buildHTTPClient(cfg config.ClientConfig) (*http.Client, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	if !cfg.TLS {
+		return client, nil
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+	if strings.TrimSpace(cfg.TLSCA) != "" {
+		caPEM, err := os.ReadFile(cfg.TLSCA)
+		if err != nil {
+			return nil, err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("failed to parse tls_ca")
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	client.Transport = &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+	return client, nil
+}
+
+func handleRegister(ctx context.Context, cli *api.Client, args []string) error {
 	fs := flag.NewFlagSet("register", flag.ExitOnError)
 	var email, password string
 	fs.StringVar(&email, "email", "", "user email")
 	fs.StringVar(&password, "password", "", "user password")
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse register flags: %w", err)
+	}
 
 	if email == "" || password == "" {
-		fmt.Fprintln(os.Stderr, "email and password are required")
-		os.Exit(1)
+		return errors.New("email and password are required")
 	}
 
 	if err := cli.Register(ctx, api.RegisterRequest{Email: email, Password: password}); err != nil {
-		fmt.Fprintln(os.Stderr, "register error:", err)
-		os.Exit(1)
+		return fmt.Errorf("register error: %w", err)
 	}
 	fmt.Println("registered")
+	return nil
 }
 
-func handleLogin(ctx context.Context, cli *api.Client, args []string) {
+func handleLogin(ctx context.Context, cli *api.Client, args []string) error {
 	fs := flag.NewFlagSet("login", flag.ExitOnError)
 	var email, password string
 	fs.StringVar(&email, "email", "", "user email")
 	fs.StringVar(&password, "password", "", "user password")
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse login flags: %w", err)
+	}
 
 	if email == "" || password == "" {
-		fmt.Fprintln(os.Stderr, "email and password are required")
-		os.Exit(1)
+		return errors.New("email and password are required")
 	}
 
 	if err := cli.Login(ctx, api.LoginRequest{Email: email, Password: password}); err != nil {
-		fmt.Fprintln(os.Stderr, "login error:", err)
-		os.Exit(1)
+		return fmt.Errorf("login error: %w", err)
 	}
 	fmt.Println("logged in")
+	return nil
 }
 
-func handleAdd(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.Crypto, args []string) {
+func handleAdd(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.Crypto, args []string) error {
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
 	var typ, payload, meta string
 	fs.StringVar(&typ, "type", "", "secret type")
 	fs.StringVar(&payload, "payload", "", "secret payload")
 	fs.StringVar(&meta, "meta", "", "meta key=value pairs separated by comma")
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse add flags: %w", err)
+	}
 
 	if typ == "" || payload == "" {
-		fmt.Fprintln(os.Stderr, "type and payload are required")
-		os.Exit(1)
+		return errors.New("type and payload are required")
 	}
 
 	now := time.Now().UTC()
@@ -173,83 +240,80 @@ func handleAdd(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.C
 		UpdatedAt: now,
 	}
 	if cryptoSvc == nil {
-		fmt.Fprintln(os.Stderr, "master password is required")
-		os.Exit(1)
+		return errors.New("master password is required")
 	}
 	encPayload, err := cryptoSvc.Encrypt(item.Payload)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "encrypt error:", err)
-		os.Exit(1)
+		return fmt.Errorf("encrypt error: %w", err)
 	}
 	item.Payload = encPayload
 
 	if err := local.Upsert(ctx, item, true); err != nil {
-		fmt.Fprintln(os.Stderr, "local save error:", err)
-		os.Exit(1)
+		return fmt.Errorf("local save error: %w", err)
 	}
 	fmt.Println(item.ID)
+	return nil
 }
 
-func handleList(ctx context.Context, local *store.LocalStore) {
+func handleList(ctx context.Context, local *store.LocalStore) error {
 	list, err := local.List(ctx, false)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "list error:", err)
-		os.Exit(1)
+		return fmt.Errorf("list error: %w", err)
 	}
 	for _, s := range list {
 		fmt.Printf("%s %s %s\n", s.ID, s.Type, s.UpdatedAt.Format("2006-01-02T15:04:05Z"))
 	}
+	return nil
 }
 
-func handleGet(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.Crypto, args []string) {
+func handleGet(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.Crypto, args []string) error {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 	var id string
 	fs.StringVar(&id, "id", "", "secret id")
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse get flags: %w", err)
+	}
 
 	if id == "" {
-		fmt.Fprintln(os.Stderr, "id is required")
-		os.Exit(1)
+		return errors.New("id is required")
 	}
 
 	secret, err := local.Get(ctx, id)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "get error:", err)
-		os.Exit(1)
+		return fmt.Errorf("get error: %w", err)
 	}
 	if cryptoSvc == nil {
-		fmt.Fprintln(os.Stderr, "master password is required")
-		os.Exit(1)
+		return errors.New("master password is required")
 	}
 	if len(secret.Payload) > 0 {
 		dec, err := cryptoSvc.Decrypt(secret.Payload)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "decrypt error:", err)
-			os.Exit(1)
+			return fmt.Errorf("decrypt error: %w", err)
 		}
 		secret.Payload = dec
 	}
 	fmt.Printf("id=%s type=%s payload=%s meta=%v updated_at=%s\n",
 		secret.ID, secret.Type, strings.TrimSpace(string(secret.Payload)), secret.Meta, secret.UpdatedAt.Format(time.RFC3339))
+	return nil
 }
 
-func handleUpdate(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.Crypto, args []string) {
+func handleUpdate(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.Crypto, args []string) error {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	var id, typ, payload, meta string
 	fs.StringVar(&id, "id", "", "secret id")
 	fs.StringVar(&typ, "type", "", "secret type")
 	fs.StringVar(&payload, "payload", "", "secret payload")
 	fs.StringVar(&meta, "meta", "", "meta key=value pairs separated by comma")
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse update flags: %w", err)
+	}
 
 	if id == "" || typ == "" || payload == "" {
-		fmt.Fprintln(os.Stderr, "id, type and payload are required")
-		os.Exit(1)
+		return errors.New("id, type and payload are required")
 	}
 
 	if cryptoSvc == nil {
-		fmt.Fprintln(os.Stderr, "master password is required")
-		os.Exit(1)
+		return errors.New("master password is required")
 	}
 
 	createdAt := time.Now().UTC()
@@ -268,26 +332,26 @@ func handleUpdate(ctx context.Context, local *store.LocalStore, cryptoSvc *crypt
 	}
 	enc, err := cryptoSvc.Encrypt(item.Payload)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "encrypt error:", err)
-		os.Exit(1)
+		return fmt.Errorf("encrypt error: %w", err)
 	}
 	item.Payload = enc
 	if err := local.Upsert(ctx, item, true); err != nil {
-		fmt.Fprintln(os.Stderr, "local update error:", err)
-		os.Exit(1)
+		return fmt.Errorf("local update error: %w", err)
 	}
 	fmt.Println(item.ID)
+	return nil
 }
 
-func handleDelete(ctx context.Context, local *store.LocalStore, args []string) {
+func handleDelete(ctx context.Context, local *store.LocalStore, args []string) error {
 	fs := flag.NewFlagSet("delete", flag.ExitOnError)
 	var id string
 	fs.StringVar(&id, "id", "", "secret id")
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parse delete flags: %w", err)
+	}
 
 	if id == "" {
-		fmt.Fprintln(os.Stderr, "id is required")
-		os.Exit(1)
+		return errors.New("id is required")
 	}
 
 	createdAt := time.Now().UTC()
@@ -308,50 +372,44 @@ func handleDelete(ctx context.Context, local *store.LocalStore, args []string) {
 		UpdatedAt: time.Now().UTC(),
 	}
 	if err := local.Upsert(ctx, item, true); err != nil {
-		fmt.Fprintln(os.Stderr, "local delete error:", err)
-		os.Exit(1)
+		return fmt.Errorf("local delete error: %w", err)
 	}
 	fmt.Println("deleted")
+	return nil
 }
 
-func handleSync(ctx context.Context, cli *api.Client, local *store.LocalStore, dataDir string) {
+func handleSync(ctx context.Context, cli *api.Client, local *store.LocalStore, dataDir string) error {
 	syncStore := store.NewSyncStore(dataDir)
 	since, err := syncStore.Load()
 	if err != nil && err != store.ErrSyncNotFound {
-		fmt.Fprintln(os.Stderr, "sync state error:", err)
-		os.Exit(1)
+		return fmt.Errorf("sync state error: %w", err)
 	}
 
 	dirty, err := local.ListDirty(ctx)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "local dirty error:", err)
-		os.Exit(1)
+		return fmt.Errorf("local dirty error: %w", err)
 	}
 	if len(dirty) > 0 {
 		_, err = cli.SyncPushEncrypted(ctx, toSyncItems(dirty))
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "sync push error:", err)
-			os.Exit(1)
+			return fmt.Errorf("sync push error: %w", err)
 		}
 		var ids []string
 		for _, item := range dirty {
 			ids = append(ids, item.ID)
 		}
 		if err := local.MarkClean(ctx, ids); err != nil {
-			fmt.Fprintln(os.Stderr, "mark clean error:", err)
-			os.Exit(1)
+			return fmt.Errorf("mark clean error: %w", err)
 		}
 	}
 
 	items, err := cli.SyncPullEncrypted(ctx, since)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sync pull error:", err)
-		os.Exit(1)
+		return fmt.Errorf("sync pull error: %w", err)
 	}
 
 	if err := local.ApplyRemote(ctx, fromSyncItems(items)); err != nil {
-		fmt.Fprintln(os.Stderr, "apply remote error:", err)
-		os.Exit(1)
+		return fmt.Errorf("apply remote error: %w", err)
 	}
 
 	for _, item := range items {
@@ -363,10 +421,10 @@ func handleSync(ctx context.Context, cli *api.Client, local *store.LocalStore, d
 	}
 
 	if err := syncStore.Save(time.Now().UTC()); err != nil {
-		fmt.Fprintln(os.Stderr, "sync save error:", err)
-		os.Exit(1)
+		return fmt.Errorf("sync save error: %w", err)
 	}
 	fmt.Printf("synced %d items\n", len(items))
+	return nil
 }
 
 func printClientUsage() {
@@ -387,7 +445,9 @@ func printClientUsage() {
 
 func newID() string {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
 	return hex.EncodeToString(b)
 }
 

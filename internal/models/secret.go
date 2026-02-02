@@ -2,6 +2,7 @@ package models
 
 import "time"
 
+// Secret represents a stored secret payload.
 type Secret struct {
 	ID        string
 	OwnerID   string

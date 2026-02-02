@@ -13,34 +13,56 @@ import (
 )
 
 func TestAuthHandlers(t *testing.T) {
-	store := repository.NewMemoryUserStore()
-	jwtSvc, _ := auth.NewJWTService("secret")
-	authSvc := auth.NewService(store, jwtSvc, time.Hour)
-	h := NewAuthHandler(authSvc)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/register", h.Register)
-	mux.HandleFunc("/login", h.Login)
-
-	registerBody, _ := json.Marshal(map[string]string{
-		"email":    "user@example.com",
-		"password": "pass123",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(registerBody))
-	resp := httptest.NewRecorder()
-	mux.ServeHTTP(resp, req)
-	if resp.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", resp.Code)
+	cases := []struct {
+		name string
+	}{
+		{name: "register_and_login"},
 	}
 
-	loginBody, _ := json.Marshal(map[string]string{
-		"email":    "user@example.com",
-		"password": "pass123",
-	})
-	req = httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(loginBody))
-	resp = httptest.NewRecorder()
-	mux.ServeHTTP(resp, req)
-	if resp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.Code)
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			store := repository.NewMemoryUserStore()
+			jwtSvc, err := auth.NewJWTService("secret")
+			if err != nil {
+				t.Fatalf("jwt init: %v", err)
+			}
+			authSvc := auth.NewService(store, jwtSvc, time.Hour)
+			h := NewAuthHandler(authSvc)
+
+			mux := http.NewServeMux()
+			mux.HandleFunc("/register", h.Register)
+			mux.HandleFunc("/login", h.Login)
+
+			registerBody, err := json.Marshal(map[string]string{
+				"email":    "user@example.com",
+				"password": "pass123",
+			})
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(registerBody))
+			req.Header.Set("Content-Type", "application/json")
+			resp := httptest.NewRecorder()
+			mux.ServeHTTP(resp, req)
+			if resp.Code != http.StatusCreated {
+				t.Fatalf("expected 201, got %d", resp.Code)
+			}
+
+			loginBody, err := json.Marshal(map[string]string{
+				"email":    "user@example.com",
+				"password": "pass123",
+			})
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			req = httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(loginBody))
+			req.Header.Set("Content-Type", "application/json")
+			resp = httptest.NewRecorder()
+			mux.ServeHTTP(resp, req)
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", resp.Code)
+			}
+		})
 	}
 }

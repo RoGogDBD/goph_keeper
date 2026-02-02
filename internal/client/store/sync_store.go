@@ -8,16 +8,20 @@ import (
 	"time"
 )
 
+// ErrSyncNotFound indicates missing sync state.
 var ErrSyncNotFound = errors.New("sync state not found")
 
+// SyncStore stores the last sync timestamp.
 type SyncStore struct {
 	path string
 }
 
+// NewSyncStore creates a SyncStore for a data directory.
 func NewSyncStore(dataDir string) *SyncStore {
 	return &SyncStore{path: filepath.Join(dataDir, "last_sync")}
 }
 
+// Save persists the last sync time.
 func (s *SyncStore) Save(t time.Time) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
@@ -25,6 +29,7 @@ func (s *SyncStore) Save(t time.Time) error {
 	return os.WriteFile(s.path, []byte(t.UTC().Format(time.RFC3339)), 0o600)
 }
 
+// Load reads the last sync time.
 func (s *SyncStore) Load() (time.Time, error) {
 	b, err := os.ReadFile(s.path)
 	if err != nil {
