@@ -18,7 +18,10 @@ import (
 
 func TestNewLocalID(t *testing.T) {
 	t.Parallel()
-	id := newLocalID()
+	id, err := newLocalID()
+	if err != nil {
+		t.Fatalf("newLocalID error: %v", err)
+	}
 	if len(id) != 32 {
 		t.Fatalf("id len=%d want=32", len(id))
 	}

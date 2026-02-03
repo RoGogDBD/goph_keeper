@@ -152,9 +152,15 @@ func showAddSecret(app *tview.Application, pages *tview.Pages, local *store.Loca
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		id, err := newLocalID()
+		if err != nil {
+			status.SetText(fmt.Sprintf("[red]Error: %v", err))
+			pages.RemovePage("modal")
+			return
+		}
 		now := time.Now().UTC()
 		item := store.Item{
-			ID:        newLocalID(),
+			ID:        id,
 			Type:      typ,
 			Payload:   []byte(payload),
 			Meta:      store.ParseMeta(meta),
@@ -281,12 +287,12 @@ func doSync(app *tview.Application, cli *api.Client, local *store.LocalStore, st
 	}()
 }
 
-func newLocalID() string {
+func newLocalID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		return ""
+		return "", err
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 func toSyncItems(items []store.Item) []api.SyncItem {
