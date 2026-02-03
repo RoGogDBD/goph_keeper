@@ -78,7 +78,7 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("http client error: %w", err)
 	}
-	cli := api.NewWithHTTPClient(cfg.ServerURL, tokenStore, cryptoSvc, httpClient)
+	cli := api.New(cfg.ServerURL, tokenStore, cryptoSvc, api.WithHTTPClient(httpClient))
 	local, err := store.NewLocalStore(cfg.DataDir)
 	if err != nil {
 		return fmt.Errorf("local store error: %w", err)

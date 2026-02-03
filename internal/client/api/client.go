@@ -28,22 +28,32 @@ type TokenStore interface {
 	Save(token string) error
 }
 
-// New creates a Client with a default HTTP client.
-func New(baseURL string, tokens TokenStore, crypto *crypto.Crypto) *Client {
-	return NewWithHTTPClient(baseURL, tokens, crypto, nil)
+// Option configures a Client.
+type Option func(*Client)
+
+// WithHTTPClient sets a custom HTTP client.
+func WithHTTPClient(httpClient *http.Client) Option {
+	return func(c *Client) {
+		if httpClient != nil {
+			c.http = httpClient
+		}
+	}
 }
 
-// NewWithHTTPClient creates a Client with a custom HTTP client.
-func NewWithHTTPClient(baseURL string, tokens TokenStore, crypto *crypto.Crypto, httpClient *http.Client) *Client {
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
-	}
-	return &Client{
+// New creates a Client with optional configuration.
+func New(baseURL string, tokens TokenStore, crypto *crypto.Crypto, opts ...Option) *Client {
+	c := &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    httpClient,
+		http:    &http.Client{Timeout: 10 * time.Second},
 		tokens:  tokens,
 		crypto:  crypto,
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
 // SetCrypto updates the crypto service used for payload encryption.

@@ -25,7 +25,7 @@ func RunUIWithHTTPClient(baseURL, dataDir string, httpClient *http.Client) error
 	status.SetText("GophKeeper UI")
 
 	tokenStore := store.NewTokenStore(dataDir)
-	cli := api.NewWithHTTPClient(baseURL, tokenStore, nil, httpClient)
+	cli := api.New(baseURL, tokenStore, nil, api.WithHTTPClient(httpClient))
 	local, err := store.NewLocalStore(dataDir)
 	if err != nil {
 		return err

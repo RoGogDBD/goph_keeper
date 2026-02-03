@@ -2,42 +2,26 @@ package repository
 
 import (
 	"context"
-	"sync"
 
 	"goph_keeper/internal/models"
 )
 
 // MemoryUserStore stores users in memory for tests.
 type MemoryUserStore struct {
-	mu    sync.RWMutex
-	users map[string]models.User
+	*MemoryStore[models.User, string]
 }
 
 // NewMemoryUserStore creates an in-memory user store.
 func NewMemoryUserStore() *MemoryUserStore {
-	return &MemoryUserStore{users: make(map[string]models.User)}
+	return &MemoryUserStore{
+		MemoryStore: NewMemoryStore(func(user models.User) string { return user.Email }, ErrUserExists, ErrUserNotFound),
+	}
 }
 
-func (s *MemoryUserStore) Create(_ context.Context, user models.User) (models.User, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, ok := s.users[user.Email]; ok {
-		return models.User{}, ErrUserExists
-	}
-
-	s.users[user.Email] = user
-	return user, nil
+func (s *MemoryUserStore) Create(ctx context.Context, user models.User) (models.User, error) {
+	return s.MemoryStore.Create(ctx, user)
 }
 
-func (s *MemoryUserStore) GetByEmail(_ context.Context, email string) (models.User, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	user, ok := s.users[email]
-	if !ok {
-		return models.User{}, ErrUserNotFound
-	}
-
-	return user, nil
+func (s *MemoryUserStore) GetByEmail(ctx context.Context, email string) (models.User, error) {
+	return s.MemoryStore.Get(ctx, email)
 }
