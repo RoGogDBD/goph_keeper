@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +14,7 @@ import (
 
 	"goph_keeper/internal/client/api"
 	"goph_keeper/internal/client/crypto"
+	clientservice "goph_keeper/internal/client/service"
 	"goph_keeper/internal/client/store"
 	"goph_keeper/internal/client/ui"
 	"goph_keeper/internal/config"
@@ -83,6 +82,8 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("local store error: %w", err)
 	}
+	syncStore := store.NewSyncStore(cfg.DataDir)
+	svc := clientservice.New(cli, local, syncStore, cryptoSvc)
 	defer func() {
 		if cerr := local.Close(); cerr != nil {
 			_ = cerr
@@ -92,35 +93,35 @@ func run(args []string) error {
 
 	switch rest[0] {
 	case "register":
-		if err := handleRegister(ctx, cli, rest[1:]); err != nil {
+		if err := handleRegister(ctx, svc, rest[1:]); err != nil {
 			return err
 		}
 	case "login":
-		if err := handleLogin(ctx, cli, rest[1:]); err != nil {
+		if err := handleLogin(ctx, svc, rest[1:]); err != nil {
 			return err
 		}
 	case "add":
-		if err := handleAdd(ctx, local, cryptoSvc, rest[1:]); err != nil {
+		if err := handleAdd(ctx, svc, rest[1:]); err != nil {
 			return err
 		}
 	case "list":
-		if err := handleList(ctx, local); err != nil {
+		if err := handleList(ctx, svc); err != nil {
 			return err
 		}
 	case "get":
-		if err := handleGet(ctx, local, cryptoSvc, rest[1:]); err != nil {
+		if err := handleGet(ctx, svc, rest[1:]); err != nil {
 			return err
 		}
 	case "update":
-		if err := handleUpdate(ctx, local, cryptoSvc, rest[1:]); err != nil {
+		if err := handleUpdate(ctx, svc, rest[1:]); err != nil {
 			return err
 		}
 	case "delete":
-		if err := handleDelete(ctx, local, rest[1:]); err != nil {
+		if err := handleDelete(ctx, svc, rest[1:]); err != nil {
 			return err
 		}
 	case "sync":
-		if err := handleSync(ctx, cli, local, cfg.DataDir); err != nil {
+		if err := handleSync(ctx, svc); err != nil {
 			return err
 		}
 	case "ui":
@@ -175,7 +176,7 @@ func buildHTTPClient(cfg config.ClientConfig) (*http.Client, error) {
 	return client, nil
 }
 
-func handleRegister(ctx context.Context, cli *api.Client, args []string) error {
+func handleRegister(ctx context.Context, svc *clientservice.Service, args []string) error {
 	fs := flag.NewFlagSet("register", flag.ExitOnError)
 	var email, password string
 	fs.StringVar(&email, "email", "", "user email")
@@ -184,18 +185,14 @@ func handleRegister(ctx context.Context, cli *api.Client, args []string) error {
 		return fmt.Errorf("parse register flags: %w", err)
 	}
 
-	if email == "" || password == "" {
-		return errors.New("email and password are required")
-	}
-
-	if err := cli.Register(ctx, api.RegisterRequest{Email: email, Password: password}); err != nil {
+	if err := svc.Register(ctx, email, password); err != nil {
 		return fmt.Errorf("register error: %w", err)
 	}
 	printLine("registered")
 	return nil
 }
 
-func handleLogin(ctx context.Context, cli *api.Client, args []string) error {
+func handleLogin(ctx context.Context, svc *clientservice.Service, args []string) error {
 	fs := flag.NewFlagSet("login", flag.ExitOnError)
 	var email, password string
 	fs.StringVar(&email, "email", "", "user email")
@@ -204,18 +201,14 @@ func handleLogin(ctx context.Context, cli *api.Client, args []string) error {
 		return fmt.Errorf("parse login flags: %w", err)
 	}
 
-	if email == "" || password == "" {
-		return errors.New("email and password are required")
-	}
-
-	if err := cli.Login(ctx, api.LoginRequest{Email: email, Password: password}); err != nil {
+	if err := svc.Login(ctx, email, password); err != nil {
 		return fmt.Errorf("login error: %w", err)
 	}
 	printLine("logged in")
 	return nil
 }
 
-func handleAdd(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.Crypto, args []string) error {
+func handleAdd(ctx context.Context, svc *clientservice.Service, args []string) error {
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
 	var typ, payload, meta string
 	fs.StringVar(&typ, "type", "", "secret type")
@@ -225,38 +218,16 @@ func handleAdd(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.C
 		return fmt.Errorf("parse add flags: %w", err)
 	}
 
-	if typ == "" || payload == "" {
-		return errors.New("type and payload are required")
-	}
-
-	now := time.Now().UTC()
-	item := store.Item{
-		ID:        newID(),
-		Type:      typ,
-		Payload:   []byte(payload),
-		Meta:      store.ParseMeta(meta),
-		Deleted:   false,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if cryptoSvc == nil {
-		return errors.New("master password is required")
-	}
-	encPayload, err := cryptoSvc.Encrypt(item.Payload)
+	id, err := svc.Add(ctx, typ, payload, meta)
 	if err != nil {
-		return fmt.Errorf("encrypt error: %w", err)
+		return fmt.Errorf("add error: %w", err)
 	}
-	item.Payload = encPayload
-
-	if err := local.Upsert(ctx, item, true); err != nil {
-		return fmt.Errorf("local save error: %w", err)
-	}
-	printLine(item.ID)
+	printLine(id)
 	return nil
 }
 
-func handleList(ctx context.Context, local *store.LocalStore) error {
-	list, err := local.List(ctx, false)
+func handleList(ctx context.Context, svc *clientservice.Service) error {
+	list, err := svc.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list error: %w", err)
 	}
@@ -266,7 +237,7 @@ func handleList(ctx context.Context, local *store.LocalStore) error {
 	return nil
 }
 
-func handleGet(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.Crypto, args []string) error {
+func handleGet(ctx context.Context, svc *clientservice.Service, args []string) error {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 	var id string
 	fs.StringVar(&id, "id", "", "secret id")
@@ -274,30 +245,16 @@ func handleGet(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.C
 		return fmt.Errorf("parse get flags: %w", err)
 	}
 
-	if id == "" {
-		return errors.New("id is required")
-	}
-
-	secret, err := local.Get(ctx, id)
+	secret, err := svc.Get(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get error: %w", err)
-	}
-	if cryptoSvc == nil {
-		return errors.New("master password is required")
-	}
-	if len(secret.Payload) > 0 {
-		dec, err := cryptoSvc.Decrypt(secret.Payload)
-		if err != nil {
-			return fmt.Errorf("decrypt error: %w", err)
-		}
-		secret.Payload = dec
 	}
 	printFmt("id=%s type=%s payload=%s meta=%v updated_at=%s\n",
 		secret.ID, secret.Type, strings.TrimSpace(string(secret.Payload)), secret.Meta, secret.UpdatedAt.Format(time.RFC3339))
 	return nil
 }
 
-func handleUpdate(ctx context.Context, local *store.LocalStore, cryptoSvc *crypto.Crypto, args []string) error {
+func handleUpdate(ctx context.Context, svc *clientservice.Service, args []string) error {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	var id, typ, payload, meta string
 	fs.StringVar(&id, "id", "", "secret id")
@@ -308,41 +265,15 @@ func handleUpdate(ctx context.Context, local *store.LocalStore, cryptoSvc *crypt
 		return fmt.Errorf("parse update flags: %w", err)
 	}
 
-	if id == "" || typ == "" || payload == "" {
-		return errors.New("id, type and payload are required")
-	}
-
-	if cryptoSvc == nil {
-		return errors.New("master password is required")
-	}
-
-	createdAt := time.Now().UTC()
-	if existing, err := local.Get(ctx, id); err == nil {
-		createdAt = existing.CreatedAt
-	}
-
-	item := store.Item{
-		ID:        id,
-		Type:      typ,
-		Payload:   []byte(payload),
-		Meta:      store.ParseMeta(meta),
-		Deleted:   false,
-		CreatedAt: createdAt,
-		UpdatedAt: time.Now().UTC(),
-	}
-	enc, err := cryptoSvc.Encrypt(item.Payload)
+	id, err := svc.Update(ctx, id, typ, payload, meta)
 	if err != nil {
-		return fmt.Errorf("encrypt error: %w", err)
+		return fmt.Errorf("update error: %w", err)
 	}
-	item.Payload = enc
-	if err := local.Upsert(ctx, item, true); err != nil {
-		return fmt.Errorf("local update error: %w", err)
-	}
-	printLine(item.ID)
+	printLine(id)
 	return nil
 }
 
-func handleDelete(ctx context.Context, local *store.LocalStore, args []string) error {
+func handleDelete(ctx context.Context, svc *clientservice.Service, args []string) error {
 	fs := flag.NewFlagSet("delete", flag.ExitOnError)
 	var id string
 	fs.StringVar(&id, "id", "", "secret id")
@@ -350,66 +281,17 @@ func handleDelete(ctx context.Context, local *store.LocalStore, args []string) e
 		return fmt.Errorf("parse delete flags: %w", err)
 	}
 
-	if id == "" {
-		return errors.New("id is required")
-	}
-
-	createdAt := time.Now().UTC()
-	itemType := "deleted"
-	var payload []byte
-	if existing, err := local.Get(ctx, id); err == nil {
-		createdAt = existing.CreatedAt
-		itemType = existing.Type
-		payload = existing.Payload
-	}
-
-	item := store.Item{
-		ID:        id,
-		Type:      itemType,
-		Payload:   payload,
-		Deleted:   true,
-		CreatedAt: createdAt,
-		UpdatedAt: time.Now().UTC(),
-	}
-	if err := local.Upsert(ctx, item, true); err != nil {
-		return fmt.Errorf("local delete error: %w", err)
+	if err := svc.Delete(ctx, id); err != nil {
+		return fmt.Errorf("delete error: %w", err)
 	}
 	printLine("deleted")
 	return nil
 }
 
-func handleSync(ctx context.Context, cli *api.Client, local *store.LocalStore, dataDir string) error {
-	syncStore := store.NewSyncStore(dataDir)
-	since, err := syncStore.Load()
-	if err != nil && !errors.Is(err, store.ErrSyncNotFound) {
-		return fmt.Errorf("sync state error: %w", err)
-	}
-
-	dirty, err := local.ListDirty(ctx)
+func handleSync(ctx context.Context, svc *clientservice.Service) error {
+	items, err := svc.Sync(ctx)
 	if err != nil {
-		return fmt.Errorf("local dirty error: %w", err)
-	}
-	if len(dirty) > 0 {
-		_, err = cli.SyncPushEncrypted(ctx, toSyncItems(dirty))
-		if err != nil {
-			return fmt.Errorf("sync push error: %w", err)
-		}
-		var ids []string
-		for _, item := range dirty {
-			ids = append(ids, item.ID)
-		}
-		if err := local.MarkClean(ctx, ids); err != nil {
-			return fmt.Errorf("mark clean error: %w", err)
-		}
-	}
-
-	items, err := cli.SyncPullEncrypted(ctx, since)
-	if err != nil {
-		return fmt.Errorf("sync pull error: %w", err)
-	}
-
-	if err := local.ApplyRemote(ctx, fromSyncItems(items)); err != nil {
-		return fmt.Errorf("apply remote error: %w", err)
+		return fmt.Errorf("sync error: %w", err)
 	}
 
 	for _, item := range items {
@@ -418,10 +300,6 @@ func handleSync(ctx context.Context, cli *api.Client, local *store.LocalStore, d
 			status = "deleted"
 		}
 		printFmt("%s %s %s %s\n", item.ID, item.Type, status, item.UpdatedAt.Format(time.RFC3339))
-	}
-
-	if err := syncStore.Save(time.Now().UTC()); err != nil {
-		return fmt.Errorf("sync save error: %w", err)
 	}
 	printFmt("synced %d items\n", len(items))
 	return nil
@@ -459,44 +337,4 @@ func printErrLine(line string) {
 	if _, err := fmt.Fprintln(os.Stderr, line); err != nil {
 		_ = err
 	}
-}
-
-func newID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return ""
-	}
-	return hex.EncodeToString(b)
-}
-
-func toSyncItems(items []store.Item) []api.SyncItem {
-	out := make([]api.SyncItem, 0, len(items))
-	for _, it := range items {
-		out = append(out, api.SyncItem{
-			ID:        it.ID,
-			Type:      it.Type,
-			Payload:   it.Payload,
-			Meta:      it.Meta,
-			Deleted:   it.Deleted,
-			CreatedAt: it.CreatedAt,
-			UpdatedAt: it.UpdatedAt,
-		})
-	}
-	return out
-}
-
-func fromSyncItems(items []api.SyncItem) []store.Item {
-	out := make([]store.Item, 0, len(items))
-	for _, it := range items {
-		out = append(out, store.Item{
-			ID:        it.ID,
-			Type:      it.Type,
-			Payload:   it.Payload,
-			Meta:      it.Meta,
-			Deleted:   it.Deleted,
-			CreatedAt: it.CreatedAt,
-			UpdatedAt: it.UpdatedAt,
-		})
-	}
-	return out
 }

@@ -10,6 +10,7 @@ import (
 
 	"goph_keeper/internal/client/api"
 	"goph_keeper/internal/client/crypto"
+	clientservice "goph_keeper/internal/client/service"
 	"goph_keeper/internal/client/store"
 	"goph_keeper/internal/config"
 )
@@ -104,15 +105,16 @@ func TestClientHandlers(t *testing.T) {
 
 	tokenStore := &memoryTokenStore{token: "t"}
 	cli := api.New(ts.URL, tokenStore, crypt)
+	svc := clientservice.New(cli, local, store.NewSyncStore(dir), crypt)
 
-	if err := handleRegister(context.Background(), cli, []string{"--email", "a@b.c", "--password", "p"}); err != nil {
+	if err := handleRegister(context.Background(), svc, []string{"--email", "a@b.c", "--password", "p"}); err != nil {
 		t.Fatalf("handleRegister: %v", err)
 	}
-	if err := handleLogin(context.Background(), cli, []string{"--email", "a@b.c", "--password", "p"}); err != nil {
+	if err := handleLogin(context.Background(), svc, []string{"--email", "a@b.c", "--password", "p"}); err != nil {
 		t.Fatalf("handleLogin: %v", err)
 	}
 
-	if err := handleAdd(context.Background(), local, crypt, []string{"--type", "text", "--payload", "payload", "--meta", "k=v"}); err != nil {
+	if err := handleAdd(context.Background(), svc, []string{"--type", "text", "--payload", "payload", "--meta", "k=v"}); err != nil {
 		t.Fatalf("handleAdd: %v", err)
 	}
 	items, err := local.List(context.Background(), false)
@@ -120,20 +122,20 @@ func TestClientHandlers(t *testing.T) {
 		t.Fatalf("expected item")
 	}
 
-	if err := handleList(context.Background(), local); err != nil {
+	if err := handleList(context.Background(), svc); err != nil {
 		t.Fatalf("handleList: %v", err)
 	}
-	if err := handleGet(context.Background(), local, crypt, []string{"--id", items[0].ID}); err != nil {
+	if err := handleGet(context.Background(), svc, []string{"--id", items[0].ID}); err != nil {
 		t.Fatalf("handleGet: %v", err)
 	}
-	if err := handleUpdate(context.Background(), local, crypt, []string{"--id", items[0].ID, "--type", "text", "--payload", "new"}); err != nil {
+	if err := handleUpdate(context.Background(), svc, []string{"--id", items[0].ID, "--type", "text", "--payload", "new"}); err != nil {
 		t.Fatalf("handleUpdate: %v", err)
 	}
-	if err := handleDelete(context.Background(), local, []string{"--id", items[0].ID}); err != nil {
+	if err := handleDelete(context.Background(), svc, []string{"--id", items[0].ID}); err != nil {
 		t.Fatalf("handleDelete: %v", err)
 	}
 
-	if err := handleSync(context.Background(), cli, local, dir); err != nil {
+	if err := handleSync(context.Background(), svc); err != nil {
 		t.Fatalf("handleSync: %v", err)
 	}
 }
@@ -150,8 +152,8 @@ func TestSyncItemConversion(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
-	out := toSyncItems([]store.Item{item})
-	back := fromSyncItems(out)
+	out := clientservice.ToSyncItems([]store.Item{item})
+	back := clientservice.FromSyncItems(out)
 	if len(back) != 1 || back[0].ID != item.ID {
 		t.Fatalf("roundtrip mismatch")
 	}
@@ -159,7 +161,11 @@ func TestSyncItemConversion(t *testing.T) {
 
 func TestNewID(t *testing.T) {
 	t.Parallel()
-	if len(newID()) != 32 {
+	id, err := clientservice.NewID()
+	if err != nil {
+		t.Fatalf("newID error: %v", err)
+	}
+	if len(id) != 32 {
 		t.Fatalf("newID length mismatch")
 	}
 }
