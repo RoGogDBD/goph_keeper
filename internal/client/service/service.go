@@ -11,6 +11,8 @@ import (
 	"goph_keeper/internal/client/api"
 	"goph_keeper/internal/client/crypto"
 	"goph_keeper/internal/client/store"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // Service coordinates client-side operations.
@@ -193,10 +195,30 @@ func (s *Service) Sync(ctx context.Context) ([]api.SyncItem, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	var items []api.SyncItem
+	g, gctx := errgroup.WithContext(ctx)
 	if len(dirty) > 0 {
-		if _, err := s.api.SyncPushEncrypted(ctx, ToSyncItems(dirty)); err != nil {
-			return nil, err
-		}
+		dirtyCopy := append([]store.Item(nil), dirty...)
+		g.Go(func() error {
+			_, err := s.api.SyncPushEncrypted(gctx, ToSyncItems(dirtyCopy))
+			return err
+		})
+	}
+	g.Go(func() error {
+		var err error
+		items, err = s.api.SyncPullEncrypted(gctx, since)
+		return err
+	})
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	if err := s.local.ApplyRemote(ctx, FromSyncItems(items)); err != nil {
+		return nil, err
+	}
+
+	if len(dirty) > 0 {
 		ids := make([]string, 0, len(dirty))
 		for _, item := range dirty {
 			ids = append(ids, item.ID)
@@ -204,15 +226,6 @@ func (s *Service) Sync(ctx context.Context) ([]api.SyncItem, error) {
 		if err := s.local.MarkClean(ctx, ids); err != nil {
 			return nil, err
 		}
-	}
-
-	items, err := s.api.SyncPullEncrypted(ctx, since)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.local.ApplyRemote(ctx, FromSyncItems(items)); err != nil {
-		return nil, err
 	}
 
 	if err := s.syncStore.Save(s.nowFn()); err != nil {
