@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"strings"
@@ -12,16 +10,17 @@ import (
 
 	"goph_keeper/internal/models"
 	"goph_keeper/internal/repository"
+	"goph_keeper/internal/service"
 )
 
 // SecretHandler handles secret CRUD endpoints.
 type SecretHandler struct {
-	store repository.SecretReadWriter
+	service service.SecretService
 }
 
 // NewSecretHandler creates a SecretHandler.
-func NewSecretHandler(store repository.SecretReadWriter) *SecretHandler {
-	return &SecretHandler{store: store}
+func NewSecretHandler(secretSvc service.SecretService) *SecretHandler {
+	return &SecretHandler{service: secretSvc}
 }
 
 type (
@@ -69,24 +68,7 @@ func (h *SecretHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := newID()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate id")
-		return
-	}
-
-	now := time.Now().UTC()
-	secret := models.Secret{
-		ID:        id,
-		OwnerID:   claims.UserID,
-		Type:      secretType,
-		Payload:   req.Payload,
-		Meta:      req.Meta,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
-	created, err := h.store.Create(r.Context(), secret)
+	created, err := h.service.Create(r.Context(), claims.UserID, secretType, req.Payload, req.Meta)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "create failed")
 		return
@@ -108,7 +90,7 @@ func (h *SecretHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secrets, err := h.store.ListByOwner(r.Context(), claims.UserID)
+	secrets, err := h.service.List(r.Context(), claims.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list failed")
 		return
@@ -141,7 +123,7 @@ func (h *SecretHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := h.store.GetByID(r.Context(), claims.UserID, id)
+	secret, err := h.service.Get(r.Context(), claims.UserID, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrSecretNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
@@ -189,16 +171,7 @@ func (h *SecretHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret := models.Secret{
-		ID:        id,
-		OwnerID:   claims.UserID,
-		Type:      secretType,
-		Payload:   req.Payload,
-		Meta:      req.Meta,
-		UpdatedAt: time.Now().UTC(),
-	}
-
-	updated, err := h.store.Update(r.Context(), secret)
+	updated, err := h.service.Update(r.Context(), claims.UserID, id, secretType, req.Payload, req.Meta)
 	if err != nil {
 		if errors.Is(err, repository.ErrSecretNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
@@ -230,7 +203,7 @@ func (h *SecretHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.Delete(r.Context(), claims.UserID, id); err != nil {
+	if err := h.service.Delete(r.Context(), claims.UserID, id); err != nil {
 		if errors.Is(err, repository.ErrSecretNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
@@ -251,12 +224,4 @@ func toSecretResponse(s models.Secret) secretResponse {
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
 	}
-}
-
-func newID() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
 }

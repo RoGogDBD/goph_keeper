@@ -16,7 +16,7 @@ import (
 	"goph_keeper/internal/repository"
 )
 
-type fakeSecretStore struct {
+type fakeSecretService struct {
 	createErr error
 	updateErr error
 	deleteErr error
@@ -26,15 +26,25 @@ type fakeSecretStore struct {
 	secret models.Secret
 }
 
-func (f *fakeSecretStore) Create(_ context.Context, secret models.Secret) (models.Secret, error) {
+func (f *fakeSecretService) Create(_ context.Context, ownerID, secretType string, payload []byte, meta map[string]string) (models.Secret, error) {
 	if f.createErr != nil {
 		return models.Secret{}, f.createErr
 	}
-	f.secret = secret
-	return secret, nil
+	if f.secret.ID == "" {
+		f.secret.ID = "id1"
+	}
+	f.secret.OwnerID = ownerID
+	f.secret.Type = secretType
+	f.secret.Payload = payload
+	f.secret.Meta = meta
+	if f.secret.CreatedAt.IsZero() {
+		f.secret.CreatedAt = time.Now().UTC()
+	}
+	f.secret.UpdatedAt = time.Now().UTC()
+	return f.secret, nil
 }
 
-func (f *fakeSecretStore) GetByID(_ context.Context, ownerID, id string) (models.Secret, error) {
+func (f *fakeSecretService) Get(_ context.Context, ownerID, id string) (models.Secret, error) {
 	if f.getErr != nil {
 		return models.Secret{}, f.getErr
 	}
@@ -44,7 +54,7 @@ func (f *fakeSecretStore) GetByID(_ context.Context, ownerID, id string) (models
 	return models.Secret{}, repository.ErrSecretNotFound
 }
 
-func (f *fakeSecretStore) ListByOwner(_ context.Context, ownerID string) ([]models.Secret, error) {
+func (f *fakeSecretService) List(_ context.Context, ownerID string) ([]models.Secret, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -54,15 +64,20 @@ func (f *fakeSecretStore) ListByOwner(_ context.Context, ownerID string) ([]mode
 	return []models.Secret{}, nil
 }
 
-func (f *fakeSecretStore) Update(_ context.Context, secret models.Secret) (models.Secret, error) {
+func (f *fakeSecretService) Update(_ context.Context, ownerID, id, secretType string, payload []byte, meta map[string]string) (models.Secret, error) {
 	if f.updateErr != nil {
 		return models.Secret{}, f.updateErr
 	}
-	f.secret = secret
-	return secret, nil
+	f.secret.ID = id
+	f.secret.OwnerID = ownerID
+	f.secret.Type = secretType
+	f.secret.Payload = payload
+	f.secret.Meta = meta
+	f.secret.UpdatedAt = time.Now().UTC()
+	return f.secret, nil
 }
 
-func (f *fakeSecretStore) Delete(_ context.Context, ownerID, id string) error {
+func (f *fakeSecretService) Delete(_ context.Context, ownerID, id string) error {
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}
@@ -85,8 +100,8 @@ func TestSecretHandlerCreateListGet(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			store := &fakeSecretStore{}
-			h := NewSecretHandler(store)
+			svc := &fakeSecretService{}
+			h := NewSecretHandler(svc)
 
 			claims := auth.Claims{UserID: "user1", Email: "u@example.com"}
 			body, err := json.Marshal(map[string]any{
@@ -116,7 +131,7 @@ func TestSecretHandlerCreateListGet(t *testing.T) {
 
 			req = httptest.NewRequest(http.MethodGet, "/api/secrets/id1", nil)
 			req = req.WithContext(withClaims(req.Context(), claims))
-			req = addURLParam(req, "id", store.secret.ID)
+			req = addURLParam(req, "id", svc.secret.ID)
 			rr = httptest.NewRecorder()
 			h.Get(rr, req)
 			if rr.Code != http.StatusOK {
@@ -138,7 +153,7 @@ func TestSecretHandlerUpdateDelete(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			store := &fakeSecretStore{
+			svc := &fakeSecretService{
 				secret: models.Secret{
 					ID:        "id1",
 					OwnerID:   "user1",
@@ -148,7 +163,7 @@ func TestSecretHandlerUpdateDelete(t *testing.T) {
 					UpdatedAt: time.Now().UTC(),
 				},
 			}
-			h := NewSecretHandler(store)
+			h := NewSecretHandler(svc)
 			claims := auth.Claims{UserID: "user1", Email: "u@example.com"}
 
 			body, err := json.Marshal(map[string]any{

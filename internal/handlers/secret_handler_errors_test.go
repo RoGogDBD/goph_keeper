@@ -22,8 +22,8 @@ func TestSecretHandlerErrors(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			store := &fakeSecretStore{}
-			h := NewSecretHandler(store)
+			svc := &fakeSecretService{}
+			h := NewSecretHandler(svc)
 			claims := auth.Claims{UserID: "user1", Email: "u@example.com"}
 
 			req := httptest.NewRequest(http.MethodGet, "/api/secrets", nil)

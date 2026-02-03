@@ -9,14 +9,17 @@ import (
 
 	"goph_keeper/internal/auth"
 	"goph_keeper/internal/repository"
+	"goph_keeper/internal/service"
 )
 
 // NewRouter builds the HTTP router for API endpoints.
 func NewRouter(userStore repository.UserStore, secretStore repository.SecretStore, jwtSvc *auth.JWTService) (http.Handler, error) {
 	authSvc := auth.NewService(userStore, jwtSvc, 24*time.Hour)
+	secretSvc := service.NewSecretService(secretStore)
+	syncSvc := service.NewSyncService(secretStore)
 	authHandler := NewAuthHandler(authSvc)
-	secretHandler := NewSecretHandler(secretStore)
-	syncHandler := NewSyncHandler(secretStore)
+	secretHandler := NewSecretHandler(secretSvc)
+	syncHandler := NewSyncHandler(syncSvc)
 
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)

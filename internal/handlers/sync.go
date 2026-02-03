@@ -1,21 +1,22 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
 	"goph_keeper/internal/models"
-	"goph_keeper/internal/repository"
+	"goph_keeper/internal/service"
 )
 
 // SyncHandler handles sync endpoints.
 type SyncHandler struct {
-	store repository.SecretSyncStore
+	service service.SyncService
 }
 
 // NewSyncHandler creates a SyncHandler.
-func NewSyncHandler(store repository.SecretSyncStore) *SyncHandler {
-	return &SyncHandler{store: store}
+func NewSyncHandler(syncSvc service.SyncService) *SyncHandler {
+	return &SyncHandler{service: syncSvc}
 }
 
 type syncItem struct {
@@ -64,7 +65,7 @@ func (h *SyncHandler) Pull(w http.ResponseWriter, r *http.Request) {
 		since = parsed
 	}
 
-	items, err := h.store.ListUpdatedSince(r.Context(), claims.UserID, since)
+	items, err := h.service.Pull(r.Context(), claims.UserID, since)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "sync pull failed")
 		return
@@ -101,39 +102,27 @@ func (h *SyncHandler) Push(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	applied := 0
+	items := make([]models.Secret, 0, len(req.Items))
 	for _, item := range req.Items {
-		if item.ID == "" {
-			writeError(w, http.StatusBadRequest, "id is required")
-			return
-		}
-		if !item.Deleted && item.Type == "" {
-			writeError(w, http.StatusBadRequest, "type is required")
-			return
-		}
-		if item.CreatedAt.IsZero() {
-			item.CreatedAt = time.Now().UTC()
-		}
-		if item.UpdatedAt.IsZero() {
-			item.UpdatedAt = time.Now().UTC()
-		}
-
-		secret := models.Secret{
+		items = append(items, models.Secret{
 			ID:        item.ID,
-			OwnerID:   claims.UserID,
 			Type:      item.Type,
 			Payload:   item.Payload,
 			Meta:      item.Meta,
 			Deleted:   item.Deleted,
 			CreatedAt: item.CreatedAt,
 			UpdatedAt: item.UpdatedAt,
-		}
+		})
+	}
 
-		if _, err := h.store.Upsert(r.Context(), secret); err != nil {
-			writeError(w, http.StatusInternalServerError, "sync push failed")
+	applied, err := h.service.Push(r.Context(), claims.UserID, items)
+	if err != nil {
+		if errors.Is(err, service.ErrSyncInvalidID) || errors.Is(err, service.ErrSyncInvalidType) {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		applied++
+		writeError(w, http.StatusInternalServerError, "sync push failed")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, syncPushResponse{Applied: applied})
